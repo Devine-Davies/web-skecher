@@ -147,4 +147,25 @@ describe('Volume 01 — Extension Foundation', () => {
       await screen.findByText(/How Baseline Helps Ship Less JavaScript — Textual Outline/i)
     ).toBeInTheDocument();
   });
+
+  it('keeps the editor title and description and toggles a resizable source view', async () => {
+    render(<EditorApp />);
+
+    expect(await screen.findByRole('textbox', { name: 'Diagram title' })).toBeInTheDocument();
+    expect(screen.getByText(SAMPLE_DIAGRAM_SPEC.summary)).toBeInTheDocument();
+    const toolbar = screen.getByRole('navigation', { name: 'Editor controls' });
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Export SVG' }));
+
+    const toggle = screen.getByRole('button', { name: 'Side by side' });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('region', { name: 'Original webpage' })).toBeInTheDocument();
+    expect(screen.getByTitle('Original webpage')).toHaveAttribute('src', expect.stringMatching(/^https?:\/\//));
+
+    const divider = screen.getByRole('separator', { name: 'Resize source and diagram' });
+    fireEvent.keyDown(divider, { key: 'ArrowRight' });
+    expect(divider).toHaveAttribute('aria-valuenow', '55');
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('region', { name: 'Original webpage' })).not.toBeInTheDocument();
+  });
 });

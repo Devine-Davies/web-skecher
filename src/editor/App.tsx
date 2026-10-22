@@ -42,6 +42,12 @@ export const App: React.FC = () => {
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string>('Saved locally');
+  const [viewMode, setViewMode] = useState<'canvas' | 'outline'>('canvas');
+  const [fitRequest, setFitRequest] = useState(0);
+  const [showSource, setShowSource] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(50);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
   const [recoveryCandidate, setRecoveryCandidate] =
     useState<SavedDiagram | null>(null);
   const liveElementsRef = useRef<ExcalidrawElementStub[]>([]);
@@ -319,10 +325,25 @@ export const App: React.FC = () => {
     }, 450);
   };
 
+  const sourceUrl = (() => {
+    try {
+      const url = new URL(currentDiagram.sourceUrl);
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const updateSplitRatio = (clientX: number) => {
+    const bounds = splitContainerRef.current?.getBoundingClientRect();
+    if (bounds?.width) {
+      setSplitRatio(Math.min(80, Math.max(20, Math.round(((clientX - bounds.left) / bounds.width) * 100))));
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      {/* Top Bar */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-900">
+      <header className="border-b border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 font-bold text-white shadow-sm">
             VP
@@ -335,84 +356,21 @@ export const App: React.FC = () => {
               onChange={(e) => void handleUpdateTitle(e.target.value)}
               className="rounded border border-transparent px-1.5 py-0.5 text-sm font-bold text-slate-900 hover:border-slate-300 focus:border-brand-600 dark:bg-transparent dark:text-slate-100"
             />
-            <div className="flex flex-wrap items-center gap-2 px-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span>{saveStatus}</span>
-              <span>•</span>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  currentDiagram.generationMode === 'live_ai'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                }`}
-              >
-                {currentDiagram.generationMode === 'live_ai'
-                  ? `⚡ Live AI (${currentDiagram.providerId} • ${currentDiagram.modelId}${
-                      currentDiagram.generationLatencyMs
-                        ? ` • ${currentDiagram.generationLatencyMs}ms`
-                        : ''
-                    })`
-                  : '⚠️ Local Heuristic Mode (Add API Key in Settings for Live AI)'}
-              </span>
-              <span>•</span>
-              <a
-                href={currentDiagram.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-brand-600 hover:underline dark:text-brand-100"
-              >
-                Return to Source Webpage ↗
-              </a>
-            </div>
+            <p className="px-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {currentDiagram.spec.summary}
+            </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            aria-label="Switch saved diagram"
-            value={currentDiagram.id}
-            onChange={(e) => {
-              const found = diagrams.find((d) => d.id === e.target.value);
-              if (found) setCurrentDiagram(found);
-            }}
-            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
-          >
-            {diagrams.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.title} (v{d.version})
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={handleExportExcalidraw}
-            className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-          >
-            Export .excalidraw
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleExportSvg()}
-            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-          >
-            Export SVG
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleExportPng()}
-            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-          >
-            Export PNG
-          </button>
         </div>
       </header>
 
-      {/* Main Editor Body */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div ref={splitContainerRef} className="flex min-w-0 flex-1 overflow-hidden">
+        <div className="min-w-0 overflow-hidden" style={{ width: showSource ? `${splitRatio}%` : '100%' }}>
           <ExcalidrawEditor
             spec={currentDiagram.spec}
             scene={currentDiagram.scene}
+            viewMode={viewMode}
+            fitRequest={fitRequest}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
             onUpdateNodeLabel={(id, label) =>
@@ -422,9 +380,56 @@ export const App: React.FC = () => {
             onSceneElementsChange={handleSceneElementsChange}
           />
         </div>
+        {showSource && (
+          <>
+            <div
+              role="separator"
+              aria-label="Resize source and diagram"
+              aria-orientation="vertical"
+              aria-valuemin={20}
+              aria-valuemax={80}
+              aria-valuenow={splitRatio}
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  setSplitRatio((value) => Math.min(80, Math.max(20, value + (event.key === 'ArrowRight' ? 5 : -5))));
+                }
+              }}
+              onPointerDown={(event) => {
+                draggingRef.current = true;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateSplitRatio(event.clientX);
+              }}
+              onPointerMove={(event) => {
+                if (draggingRef.current) updateSplitRatio(event.clientX);
+              }}
+              onPointerUp={(event) => {
+                draggingRef.current = false;
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => { draggingRef.current = false; }}
+              className="z-10 w-2 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-brand-500 focus-visible:bg-brand-500 dark:bg-slate-700"
+            />
+            <section aria-label="Original webpage" className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-900">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 text-xs dark:border-slate-700">
+                <span className="font-semibold">Original webpage</span>
+                {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline dark:text-brand-100">Open in new tab ↗</a>}
+              </div>
+              {sourceUrl ? (
+                <>
+                  <iframe title="Original webpage" src={sourceUrl} sandbox="allow-forms allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0" />
+                  <p className="px-3 py-1 text-[11px] text-slate-500">If this site blocks embedded pages, open it in a new tab instead.</p>
+                </>
+              ) : (
+                <p className="p-4 text-sm text-slate-500">No supported source webpage is available for this diagram.</p>
+              )}
+            </section>
+          </>
+        )}
+        </div>
 
-        {/* Right Sidebar: AI Refinement, Version History & Source References */}
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        {!showSource && <aside className="w-80 shrink-0 overflow-y-auto border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
           {recoveryCandidate && (
             <div
               role="alert"
@@ -537,8 +542,30 @@ export const App: React.FC = () => {
               ))}
             </div>
           </section>
-        </aside>
+        </aside>}
       </div>
+      <nav aria-label="Editor controls" className="fixed bottom-2 left-1/2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-2 overflow-x-auto whitespace-nowrap rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-xs shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+        <select
+          aria-label="Switch saved diagram"
+          value={currentDiagram.id}
+          onChange={(e) => {
+            const found = diagrams.find((d) => d.id === e.target.value);
+            if (found) setCurrentDiagram(found);
+          }}
+          className="max-w-36 rounded-full border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800"
+        >
+          {diagrams.map((d) => <option key={d.id} value={d.id}>{d.title} (v{d.version})</option>)}
+        </select>
+        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Excalidraw Canvas</button>
+        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Accessible Textual Outline</button>
+        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Fit to Diagram</button>}
+        <span className="h-5 border-l border-slate-200 dark:border-slate-700" aria-hidden="true" />
+        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Side by side</button>
+        <button type="button" onClick={handleExportExcalidraw} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export .excalidraw</button>
+        <button type="button" onClick={() => void handleExportSvg()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export SVG</button>
+        <button type="button" onClick={() => void handleExportPng()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export PNG</button>
+        <span role="status" className="text-slate-500 dark:text-slate-400">{saveStatus}</span>
+      </nav>
     </div>
   );
 };
