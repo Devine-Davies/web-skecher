@@ -41,6 +41,10 @@ export interface ConnectionResult {
   latencyMs?: number;
 }
 
+export interface ConnectionCheckOptions {
+  healthCheckOnly?: boolean;
+}
+
 export interface ModelInfo {
   id: string;
   label: string;
@@ -66,7 +70,7 @@ export interface DiagramRefinementRequest {
 export interface AIProvider {
   id: AIProviderId;
   name: string;
-  validateConfig(): Promise<ConnectionResult>;
+  validateConfig(options?: ConnectionCheckOptions): Promise<ConnectionResult>;
   listModels(): Promise<ModelInfo[]>;
   generateDiagram(request: DiagramGenerationRequest): Promise<DiagramSpec>;
   refineDiagram(request: DiagramRefinementRequest): Promise<DiagramPatch>;

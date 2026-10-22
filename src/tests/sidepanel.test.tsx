@@ -147,11 +147,12 @@ describe('Sidepanel source and diagram controls', () => {
     await saveUserSettings({
       ...DEFAULT_USER_SETTINGS, onboardingCompleted: true,
       activeProviderId: 'copilot', activeModelId: 'auto', activeProfileId: 'local-copilot',
-      profiles: [{ id: 'local-copilot', name: 'Copilot', providerId: 'copilot', modelId: 'auto' }],
+      profiles: [{ id: 'local-copilot', name: 'Copilot', providerId: 'copilot', modelId: 'auto', timeoutMs: 30000 }],
     });
     validateConfig.mockResolvedValue({ ok: false });
     render(<App />);
     expect(await screen.findByText('Copilot CLI · Disconnected')).toBeInTheDocument();
+    expect(validateConfig).toHaveBeenCalledWith({ healthCheckOnly: true });
   });
 
   it('disables generation for an empty extraction', async () => {

@@ -220,9 +220,12 @@ export const App: React.FC = () => {
           ...activeProfile,
           baseUrl,
           modelId,
-        }).validateConfig();
+        }).validateConfig({ healthCheckOnly: true });
         if (!cancelled) {
-          setConnection({ ok: result.ok, label: result.ok ? 'Connected' : 'Disconnected' });
+          setConnection({
+            ok: result.ok,
+            label: result.ok ? providerId === 'copilot' ? 'Bridge online' : 'Connected' : 'Disconnected',
+          });
         }
       } catch {
         if (!cancelled) setConnection({ ok: false, label: 'Disconnected' });
