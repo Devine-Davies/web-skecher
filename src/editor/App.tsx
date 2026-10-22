@@ -47,6 +47,7 @@ export const App: React.FC = () => {
   const [showSource, setShowSource] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const controlsRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [splitRatio, setSplitRatio] = useState(50);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -99,7 +100,10 @@ export const App: React.FC = () => {
       if (!controlsRef.current?.contains(event.target as Node)) setExportOpen(false);
     };
     const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExportOpen(false);
+      if (event.key === 'Escape') {
+        setExportOpen(false);
+        exportButtonRef.current?.focus();
+      }
     };
     document.addEventListener('pointerdown', dismissOnOutsideClick);
     document.addEventListener('keydown', dismissOnEscape);
@@ -593,7 +597,7 @@ export const App: React.FC = () => {
           Side by side
         </button>
         <span role="status" className="shrink-0 px-2 text-slate-300">{saveStatus}</span>
-        <button type="button" aria-expanded={exportOpen} aria-controls="editor-export-options" aria-haspopup="true" onClick={() => setExportOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+        <button ref={exportButtonRef} type="button" aria-expanded={exportOpen} aria-controls="editor-export-options" aria-haspopup="true" onClick={() => setExportOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3"/></svg>
           Export
           <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m2 4 4 4 4-4"/></svg>

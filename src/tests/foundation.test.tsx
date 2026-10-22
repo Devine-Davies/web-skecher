@@ -133,10 +133,9 @@ describe('Volume 01 — Extension Foundation', () => {
     await saveUserSettings({ ...initial, onboardingCompleted: true });
 
     render(<EditorApp />);
-    const exportBtn = await screen.findByRole('button', {
-      name: /Export \.excalidraw/i,
-    });
-    expect(exportBtn).toBeInTheDocument();
+    const exportBtn = await screen.findByRole('button', { name: 'Export' });
+    fireEvent.click(exportBtn);
+    expect(screen.getByRole('button', { name: 'Export .excalidraw' })).toBeInTheDocument();
 
     const outlineToggle = screen.getByRole('button', {
       name: /Accessible Textual Outline/i,
@@ -154,7 +153,19 @@ describe('Volume 01 — Extension Foundation', () => {
     expect(await screen.findByRole('textbox', { name: 'Diagram title' })).toBeInTheDocument();
     expect(screen.getByText(SAMPLE_DIAGRAM_SPEC.summary)).toBeInTheDocument();
     const toolbar = screen.getByRole('navigation', { name: 'Editor controls' });
-    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Export SVG' }));
+    const exportButton = screen.getByRole('button', { name: 'Export' });
+    expect(toolbar).toContainElement(exportButton);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(exportButton);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('group', { name: 'Export options' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export SVG' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: 'Export options' })).not.toBeInTheDocument();
+    expect(exportButton).toHaveFocus();
+    fireEvent.click(exportButton);
+    fireEvent.pointerDown(document.body);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'false');
 
     const toggle = screen.getByRole('button', { name: 'Side by side' });
     fireEvent.click(toggle);
