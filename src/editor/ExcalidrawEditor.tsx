@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   convertToExcalidrawElements,
   Excalidraw,
@@ -7,7 +7,6 @@ import '@excalidraw/excalidraw/index.css';
 import { calculateDiagramLayout, wrapNodeLabelText } from '@/core/diagrams/layout';
 import { NODE_VISUAL_CONVENTIONS } from '@/core/diagrams/renderer';
 import type {
-  DiagramNodeKind,
   DiagramSpec,
   ExcalidrawElementStub,
   ExcalidrawSceneData,
@@ -16,6 +15,8 @@ import type {
 export interface ExcalidrawEditorProps {
   spec: DiagramSpec;
   scene: ExcalidrawSceneData;
+  viewMode: 'canvas' | 'outline';
+  fitRequest: number;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
   onUpdateNodeLabel: (nodeId: string, newLabel: string) => void;
@@ -141,13 +142,14 @@ export function buildExcalidrawElementsFromSpec(spec: DiagramSpec) {
 export const ExcalidrawEditor: React.FC<ExcalidrawEditorProps> = ({
   spec,
   scene,
+  viewMode,
+  fitRequest,
   selectedNodeId,
   onSelectNode,
   onUpdateNodeLabel,
   onDeleteNode,
   onSceneElementsChange,
 }) => {
-  const [viewMode, setViewMode] = useState<'canvas' | 'outline'>('canvas');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const excalidrawApiRef = useRef<any>(null);
 
@@ -212,6 +214,10 @@ export const ExcalidrawEditor: React.FC<ExcalidrawEditorProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (fitRequest > 0) handleFitToContent();
+  }, [fitRequest]);
+
   const selectedNode = useMemo(
     () => spec.nodes.find((n) => n.id === selectedNodeId) ?? null,
     [spec.nodes, selectedNodeId]
@@ -219,69 +225,6 @@ export const ExcalidrawEditor: React.FC<ExcalidrawEditorProps> = ({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Canvas Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setViewMode('canvas')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-              viewMode === 'canvas'
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-            }`}
-          >
-            Excalidraw Canvas
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('outline')}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-              viewMode === 'outline'
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-            }`}
-          >
-            Accessible Textual Outline
-          </button>
-          {viewMode === 'canvas' && (
-            <button
-              type="button"
-              onClick={handleFitToContent}
-              className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              Fit to Diagram
-            </button>
-          )}
-        </div>
-
-        {/* Visual Conventions Legend */}
-        <div
-          aria-label="Diagram node visual conventions"
-          className="hidden xl:flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300"
-        >
-          {(Object.keys(NODE_VISUAL_CONVENTIONS) as DiagramNodeKind[]).map(
-            (kind) => {
-              const v = NODE_VISUAL_CONVENTIONS[kind];
-              return (
-                <span
-                  key={kind}
-                  className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5"
-                  style={{
-                    borderColor: v.strokeColor,
-                    backgroundColor: v.backgroundColor,
-                    color: '#0f172a',
-                  }}
-                >
-                  <span>{v.shape === 'diamond' ? '◆' : v.rounded ? '▢' : '▭'}</span>
-                  <span className="font-medium">{v.badgeLabel}</span>
-                </span>
-              );
-            }
-          )}
-        </div>
-      </div>
-
       {/* Selected Node Inspector Bar */}
       {selectedNode && viewMode === 'canvas' && (
         <div className="flex items-center justify-between gap-3 border-b border-brand-100 bg-brand-50/70 px-4 py-1.5 text-xs dark:border-slate-800 dark:bg-slate-900">
@@ -456,4 +399,3 @@ export const ExcalidrawEditor: React.FC<ExcalidrawEditorProps> = ({
     </div>
   );
 };
-
