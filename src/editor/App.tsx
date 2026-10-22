@@ -544,7 +544,7 @@ export const App: React.FC = () => {
           </section>
         </aside>}
       </div>
-      <nav aria-label="Editor controls" className="fixed bottom-2 left-1/2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-2 overflow-x-auto whitespace-nowrap rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-xs shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <nav aria-label="Editor controls" className="fixed bottom-2 left-1/2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto whitespace-nowrap rounded-full border border-slate-700 bg-slate-800 px-3 py-1.5 text-[10px] font-medium text-white shadow-xl">
         <select
           aria-label="Switch saved diagram"
           value={currentDiagram.id}
@@ -552,19 +552,19 @@ export const App: React.FC = () => {
             const found = diagrams.find((d) => d.id === e.target.value);
             if (found) setCurrentDiagram(found);
           }}
-          className="max-w-36 rounded-full border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800"
+          className="max-w-36 shrink-0 rounded-full border border-slate-600 bg-slate-900 px-2 py-1 text-white"
         >
           {diagrams.map((d) => <option key={d.id} value={d.id}>{d.title} (v{d.version})</option>)}
         </select>
-        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Excalidraw Canvas</button>
-        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Accessible Textual Outline</button>
-        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Fit to Diagram</button>}
-        <span className="h-5 border-l border-slate-200 dark:border-slate-700" aria-hidden="true" />
-        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Side by side</button>
-        <button type="button" onClick={handleExportExcalidraw} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export .excalidraw</button>
-        <button type="button" onClick={() => void handleExportSvg()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export SVG</button>
-        <button type="button" onClick={() => void handleExportPng()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export PNG</button>
-        <span role="status" className="text-slate-500 dark:text-slate-400">{saveStatus}</span>
+        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Excalidraw Canvas</button>
+        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Accessible Textual Outline</button>
+        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Fit to Diagram</button>}
+        <span className="h-5 shrink-0 border-l border-slate-600" aria-hidden="true" />
+        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Side by side</button>
+        <button type="button" onClick={handleExportExcalidraw} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export .excalidraw</button>
+        <button type="button" onClick={() => void handleExportSvg()} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export SVG</button>
+        <button type="button" onClick={() => void handleExportPng()} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export PNG</button>
+        <span role="status" className="shrink-0 px-1 text-slate-400">{saveStatus}</span>
       </nav>
     </div>
   );
