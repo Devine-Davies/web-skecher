@@ -35,6 +35,7 @@ import {
 } from '@/core/extraction';
 import { runDiagramGenerationFlow } from '@/core/ai/generation';
 import { requestEndpointAccess } from '@/core/security/host-permissions';
+import { getProviderApprovalKey } from '@/core/security/provider-approval';
 import { extractFromActiveTab, getActiveTabMetadata, openEditorTab } from '@/background/tabs';
 import { Header } from './components/Header';
 import { StageProgress } from './components/StageProgress';
@@ -232,11 +233,10 @@ export const App: React.FC = () => {
     if (isGenerating) return;
     setErrorMessage(null);
 
-    const providerAlreadyApproved =
-      (settings.approvedProfiles ?? []).includes(activeProfile?.id ?? '') ||
-      (providerId !== 'custom' &&
-        providerId !== 'ollama' &&
-        (settings.approvedProviders ?? []).includes(providerId));
+    const approvalKey = getProviderApprovalKey(providerId, activeProfile);
+    const providerAlreadyApproved = (settings.approvedProfiles ?? []).includes(
+      approvalKey
+    );
     if (settings.requireDataSharingConfirmation && !providerAlreadyApproved) {
       setAwaitingApproval(true);
       return;
@@ -281,10 +281,11 @@ export const App: React.FC = () => {
     try {
       if (rememberProviderApproval) {
         const currentApproved = settings.approvedProfiles ?? [];
-        if (activeProfile && !currentApproved.includes(activeProfile.id)) {
+        const approvalKey = getProviderApprovalKey(providerId, activeProfile);
+        if (!currentApproved.includes(approvalKey)) {
           const updatedSettings = await saveUserSettings({
             ...settings,
-            approvedProfiles: [...currentApproved, activeProfile.id],
+            approvedProfiles: [...currentApproved, approvalKey],
           });
           setSettings(updatedSettings);
         }

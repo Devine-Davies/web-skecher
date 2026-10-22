@@ -15,6 +15,7 @@ import {
 } from '@/core/security/credentials';
 import { callMCPTool, testMCPConnection, type MCPTool } from '@/core/mcp/client';
 import { requestEndpointAccess } from '@/core/security/host-permissions';
+import { getProviderApprovalKey } from '@/core/security/provider-approval';
 import type { MCPConnection } from '@/shared/types';
 
 const mcpConnection: MCPConnection = {
@@ -59,6 +60,7 @@ describe('Volume 06 — Additional Connections', () => {
       profiles,
       activeProfileId: profiles[0].id,
     });
+
     await saveMCPSecret('test-mcp', 'mcp-test-secret', false);
 
     const storedMetadata = localStorage.getItem('visualise_page_settings_v1') ?? '';
@@ -90,6 +92,55 @@ describe('Volume 06 — Additional Connections', () => {
       profiles: [reloaded.profiles[0]],
     });
     expect(await loadProfileCredential('profile-anthropic')).toBe('');
+  });
+
+  it('scopes remembered page-sharing approvals to the exact provider profile and endpoint', () => {
+    const profile = {
+      id: 'team-model',
+      name: 'Team model',
+      providerId: 'custom' as const,
+      modelId: 'model-a',
+      baseUrl: 'https://models.example.test/v1',
+      timeoutMs: 30000,
+    };
+    const approval = getProviderApprovalKey('custom', profile);
+    expect(getProviderApprovalKey('custom', { ...profile })).toBe(approval);
+    expect(
+      getProviderApprovalKey('custom', {
+        ...profile,
+        baseUrl: 'https://other.example.test/v1',
+      })
+    ).not.toBe(approval);
+    expect(
+      getProviderApprovalKey('ollama', {
+        ...profile,
+        providerId: 'ollama',
+      })
+    ).not.toBe(approval);
+  });
+
+  it('moves persisted MCP credentials back to session storage when persistence is disabled', async () => {
+    const settings = await loadUserSettings();
+    const connection: MCPConnection = {
+      ...mcpConnection,
+      id: 'persistent-mcp',
+      endpoint: 'https://mcp.example.test',
+      approvedEndpoint: 'https://mcp.example.test',
+    };
+    await saveMCPSecret(connection.id, 'persistent-mcp-test-token', true);
+    await saveUserSettings({
+      ...settings,
+      persistCredentialsLocally: false,
+      mcpConnections: [...settings.mcpConnections, connection],
+    });
+
+    expect(
+      localStorage.getItem('visualise_page_consented_local_keys_v1')
+    ).not.toContain('persistent-mcp-test-token');
+    expect(
+      sessionStorage.getItem('visualise_page_session_keys_v1')
+    ).toContain('persistent-mcp-test-token');
+    expect(await loadMCPSecret(connection.id)).toBe('persistent-mcp-test-token');
   });
 
   it('sends a custom OpenAI-compatible request only after exact endpoint approval', async () => {

@@ -17,8 +17,10 @@ import {
 import { createDiagramCheckpoint } from '@/core/diagrams/patches';
 import {
   clearAllProviderCredentials,
+  loadMCPSecret,
   loadProviderApiKey,
   loadProfileCredential,
+  saveMCPSecret,
   saveProfileCredential,
   saveProviderApiKey,
 } from '@/core/security/credentials';
@@ -134,9 +136,17 @@ export async function saveUserSettings(settings: UserSettings): Promise<UserSett
     {}
   );
   const retainedProfileIds = new Set(settings.profiles.map((profile) => profile.id));
+  const retainedMCPIds = new Set(
+    settings.mcpConnections.map((connection) => connection.id)
+  );
   for (const profile of previous.profiles ?? []) {
     if (!retainedProfileIds.has(profile.id)) {
       await saveProfileCredential(profile.id, '', false);
+    }
+  }
+  for (const connection of previous.mcpConnections ?? []) {
+    if (!retainedMCPIds.has(connection.id)) {
+      await saveMCPSecret(connection.id, '', false);
     }
   }
   for (const profile of settings.profiles) {
@@ -145,6 +155,12 @@ export async function saveUserSettings(settings: UserSettings): Promise<UserSett
       profile.apiKey ?? '',
       persistLocally
     );
+  }
+  for (const connection of settings.mcpConnections) {
+    const secret = await loadMCPSecret(connection.id);
+    if (secret) {
+      await saveMCPSecret(connection.id, secret, persistLocally);
+    }
   }
   await saveProviderApiKey(settings.activeProviderId, '', persistLocally);
 

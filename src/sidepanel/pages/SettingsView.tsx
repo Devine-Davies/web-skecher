@@ -269,14 +269,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       connection.id === mcpId ? savedConnection : connection
     );
     setMcpConnections(updatedConnections);
+    await saveMCPSecret(
+      mcpId,
+      mcpAuthMode === 'bearer' ? mcpSecret : '',
+      Boolean(settings.persistCredentialsLocally)
+    );
     onSave({ ...settings, mcpConnections: updatedConnections });
-    if (mcpAuthMode === 'bearer') {
-      await saveMCPSecret(
-        mcpId,
-        mcpSecret,
-        Boolean(settings.persistCredentialsLocally)
-      );
-    }
     setStatusMessage(res.message);
   };
 
@@ -298,12 +296,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       item.id === mcpId ? updatedConnection : item
     );
     setMcpConnections(updatedConnections);
-    onSave({ ...settings, mcpConnections: updatedConnections });
     await saveMCPSecret(
       mcpId,
       mcpAuthMode === 'bearer' ? mcpSecret : '',
       Boolean(settings.persistCredentialsLocally)
     );
+    onSave({ ...settings, mcpConnections: updatedConnections });
     setStatusMessage('MCP connection settings saved.');
   };
 
@@ -989,15 +987,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Require content preview approval before sending page text to AI
         </label>
 
-        {(settings.approvedProviders?.length ?? 0) > 0 && (
+        {((settings.approvedProfiles?.length ?? 0) > 0 ||
+          (settings.approvedProviders?.length ?? 0) > 0) && (
           <div className="flex items-center justify-between rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] dark:bg-slate-800">
             <span>
-              Remembered approvals: {settings.approvedProviders?.join(', ')}
+              Remembered content-sharing approvals
             </span>
             <button
               type="button"
               onClick={() => {
-                onSave({ ...settings, approvedProviders: [] });
+                onSave({
+                  ...settings,
+                  approvedProviders: [],
+                  approvedProfiles: [],
+                });
                 setStatusMessage('Cleared remembered provider approvals.');
               }}
               className="font-semibold text-brand-600 hover:underline dark:text-brand-100"

@@ -53,17 +53,19 @@ Manifest V3 `manifest.json`.
    to that provider’s host.
 3. Open a supported webpage, review the extracted text with **Content Preview**,
    choose a diagram style, and select **Visualise Page**.
-4. Read the sharing confirmation and approve before page text is sent to the
-   selected AI provider. Open the generated diagram to edit, refine, or export
-   it.
+4. With the default sharing-approval setting enabled, review the confirmation
+   and approve before page text is sent to the selected AI provider. Open the
+   generated diagram to edit, refine, or export it.
 
 ## Privacy and permissions
 
-Diagrams and extracted documents are stored in the browser. Page text is sent
-outside the browser only to the selected AI provider after the content-sharing
-confirmation. An optional MCP connection test sends protocol messages to its
-approved endpoint, but does not send webpage content or invoke a tool. Remote
-MCP tool calls are not part of diagram generation.
+Diagrams and extracted documents are stored in the browser. By default, page
+text is sent to the selected AI provider only after the content-sharing
+confirmation. You can disable **Require content preview approval** in Settings;
+when disabled, generation sends page text without that additional confirmation.
+An optional MCP connection test sends protocol messages to its approved
+endpoint, but does not send webpage content or invoke a tool. Remote MCP tool
+calls are not part of diagram generation.
 
 Provider and MCP credentials are stored separately from general settings.
 Credentials use session storage unless you opt into keeping them in local
