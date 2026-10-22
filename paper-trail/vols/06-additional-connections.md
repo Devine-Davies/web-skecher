@@ -1,7 +1,7 @@
 ---
-status: planned        # planned | in-progress | blocked | done
+status: in-progress    # planned | in-progress | blocked | done
 milestone: m1
-started:
+started: 2026-10-22
 completed:
 ---
 
