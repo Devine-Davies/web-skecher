@@ -5,26 +5,26 @@ Page extracts article content, lets you review it before sharing, and builds a
 flowchart, mind map, concept map, or infographic that stays editable in your
 browser.
 
-## What you can do
+## Current features
 
 - Extract article text from the active tab, or paste text when a page blocks
   extraction.
 - Choose a diagram style and level of detail, then preview the source content
   before sending it to an AI provider.
-- Generate diagrams with OpenAI or Anthropic, connect to a local Ollama server,
-  or configure an explicitly approved OpenAI-compatible endpoint.
+- Generate diagrams with OpenAI or use the local heuristic preview.
 - Refine diagrams with natural-language instructions, edit their shapes, and
   save versions and recovery checkpoints locally.
 - Export `.excalidraw`, SVG, or PNG files.
-- Configure optional remote MCP connections, test Streamable HTTP
-  initialization, inspect discovered tool schemas, and manage per-tool
-  permissions. MCP Apps rendering is not supported; the local Excalidraw
-  document remains the canonical output.
 
-Provider profiles and the remote MCP connection manager are still being
-completed in [Vol 06](paper-trail/vols/06-additional-connections.md). Do not
-interpret the MCP connection test as an Excalidraw MCP App integration: it
-checks protocol connectivity and tool discovery only.
+## Under development
+
+[Vol 06 — Additional Connections](paper-trail/vols/06-additional-connections.md)
+is still in progress. This work adds Anthropic, localhost-only Ollama, approved
+custom OpenAI-compatible endpoints, named profiles, and an optional remote MCP
+connection manager. MCP initialization and tool-schema discovery are
+experimental; hosted Excalidraw MCP Apps rendering is not implemented or
+claimed. A protocol test does not establish interactive-view compatibility, and
+the local Excalidraw document remains the canonical output and fallback.
 
 ## Install locally in Chrome
 

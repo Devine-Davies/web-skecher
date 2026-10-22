@@ -4,7 +4,6 @@ import {
   validateDiagramPatch,
   validateDiagramSpec,
 } from '@/core/diagrams/schema';
-import { buildHeuristicRefinementPatch } from '@/core/diagrams/patches';
 import {
   buildDiagramGenerationPrompt,
   buildDiagramRefinementPrompt,
@@ -42,13 +41,17 @@ function isLoopback(hostname: string): boolean {
 }
 
 function isPrivateAddress(hostname: string): boolean {
+  const normalisedHostname = hostname.toLowerCase().replace(/\.$/, '');
   return (
-    isLoopback(hostname) ||
+    hostname.startsWith('[') ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(normalisedHostname) ||
+    isLoopback(normalisedHostname) ||
     /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(
-      hostname
+      normalisedHostname
     ) ||
-    hostname.endsWith('.local') ||
-    hostname.endsWith('.internal')
+    normalisedHostname.endsWith('.local') ||
+    normalisedHostname.endsWith('.internal') ||
+    normalisedHostname.endsWith('.localhost')
   );
 }
 
@@ -342,13 +345,16 @@ export class CompatibleProvider implements AIProvider {
       instruction: request.instruction,
       selectedNodeIds: request.selectedNodeIds,
     });
+    const raw = await this.requestJson(basePrompt, request.modelId);
     try {
-      return validateDiagramPatch(
-        JSON.parse(await this.requestJson(basePrompt, request.modelId))
-      );
-    } catch (error) {
-      if (error instanceof AIGenerationError) throw error;
-      return buildHeuristicRefinementPatch(request);
+      return validateDiagramPatch(JSON.parse(raw));
+    } catch {
+      throw new AIGenerationError({
+        code: 'INVALID_JSON',
+        providerId: this.id,
+        retryable: true,
+        message: `${this.name} returned an invalid refinement patch.`,
+      });
     }
   }
 }

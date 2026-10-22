@@ -171,9 +171,9 @@ export const App: React.FC = () => {
     AI_PROVIDER_CATALOG[0];
 
   const activeProfile =
-    settings.profiles.find((profile) => profile.id === profileId) ??
-    settings.profiles.find((profile) => profile.providerId === providerId) ??
-    settings.profiles[0];
+    settings.profiles.find(
+      (profile) => profile.id === profileId && profile.providerId === providerId
+    ) ?? settings.profiles.find((profile) => profile.providerId === providerId);
   const hasApiKey =
     providerId === 'copilot' ||
     providerId === 'ollama' ||
@@ -308,7 +308,8 @@ export const App: React.FC = () => {
             ? activeProfile?.baseUrl
             : undefined,
         approvedEndpoint:
-          activeProfile?.approvedEndpoint === activeProfile?.baseUrl
+          activeProfile &&
+          activeProfile.approvedEndpoint === activeProfile.baseUrl
             ? activeProfile.approvedEndpoint
             : undefined,
         additionalHeaders: activeProfile?.additionalHeaders,
@@ -602,6 +603,7 @@ export const App: React.FC = () => {
                       setProfileId(profile.id);
                       setModelId(profile.modelId);
                     } else if (found) {
+                      setProfileId('');
                       setModelId(found.defaultModel);
                     }
                   }}

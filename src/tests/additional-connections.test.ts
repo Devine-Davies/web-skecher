@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SAMPLE_DIAGRAM_SPEC, SAMPLE_SOURCE_DOCUMENT } from '@/shared/constants';
 import { CompatibleProvider } from '@/core/ai/providers/compatible';
 import { AnthropicProvider } from '@/core/ai/providers/anthropic';
+import { runDiagramGenerationFlow } from '@/core/ai/generation';
 import {
   clearAllStoredData,
   loadUserSettings,
@@ -13,6 +14,7 @@ import {
   saveMCPSecret,
 } from '@/core/security/credentials';
 import { callMCPTool, testMCPConnection, type MCPTool } from '@/core/mcp/client';
+import { requestEndpointAccess } from '@/core/security/host-permissions';
 import type { MCPConnection } from '@/shared/types';
 
 const mcpConnection: MCPConnection = {
@@ -63,6 +65,12 @@ describe('Volume 06 — Additional Connections', () => {
     expect(storedMetadata).not.toContain('profile-openai-test-secret');
     expect(storedMetadata).not.toContain('profile-anthropic-test-secret');
     expect(storedMetadata).not.toContain('mcp-test-secret');
+    expect(
+      localStorage.getItem('visualise_page_consented_local_keys_v1')
+    ).toBe('{}');
+    expect(
+      sessionStorage.getItem('visualise_page_session_keys_v1')
+    ).toContain('profile-openai-test-secret');
     expect(await loadProfileCredential('profile-openai')).toBe(
       'profile-openai-test-secret'
     );
@@ -77,6 +85,11 @@ describe('Volume 06 — Additional Connections', () => {
       'profile-anthropic',
     ]);
     expect(reloaded.activeProfileId).toBe('profile-openai');
+    await saveUserSettings({
+      ...reloaded,
+      profiles: [reloaded.profiles[0]],
+    });
+    expect(await loadProfileCredential('profile-anthropic')).toBe('');
   });
 
   it('sends a custom OpenAI-compatible request only after exact endpoint approval', async () => {
@@ -129,6 +142,17 @@ describe('Volume 06 — Additional Connections', () => {
         modelId: 'org-model',
       })
     ).rejects.toMatchObject({ code: 'NETWORK_ERROR', retryable: false });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+
+    const privateEndpoint = new CompatibleProvider({
+      providerId: 'custom',
+      baseUrl: 'https://[fd00::1]/v1',
+      approvedEndpoint: 'https://[fd00::1]/v1',
+      fetchFn,
+    });
+    expect((await privateEndpoint.validateConfig()).message).toContain(
+      'public HTTPS endpoint'
+    );
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
@@ -388,5 +412,34 @@ describe('Volume 06 — Additional Connections', () => {
         (JSON.parse(init.body) as { method?: string }).method === 'tools/call'
       );
     })).toBe(true);
+  });
+
+  it('requests only the selected host and keeps local rendering available after MCP failure', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal('chrome', { permissions: { request: requestPermission } });
+    expect(
+      await requestEndpointAccess('https://service.example.test:8443/mcp')
+    ).toBe(true);
+    expect(requestPermission).toHaveBeenCalledWith({
+      origins: ['https://service.example.test/*'],
+    });
+    vi.unstubAllGlobals();
+
+    const unavailable = await testMCPConnection(mcpConnection, {
+      fetchFn: vi.fn<typeof fetch>().mockRejectedValue(
+        new TypeError('Failed to fetch')
+      ),
+    });
+    expect(unavailable.ok).toBe(false);
+
+    const localDiagram = await runDiagramGenerationFlow({
+      sourceDocument: SAMPLE_SOURCE_DOCUMENT,
+      providerId: 'openai',
+      modelId: 'gpt-4o-mini',
+      diagramType: 'flowchart',
+      complexity: 'simple',
+    });
+    expect(localDiagram.generationMode).toBe('local_heuristic');
+    expect(localDiagram.scene.type).toBe('excalidraw');
   });
 });

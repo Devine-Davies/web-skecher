@@ -325,6 +325,20 @@ export async function testMCPConnection(
       message: 'Approve this endpoint in Settings before connecting.',
     };
   }
+  if (connection.authMode === 'bearer' && !options.authToken?.trim()) {
+    return {
+      ...baseResult,
+      ok: false,
+      message: 'This MCP endpoint requires an authentication token.',
+    };
+  }
+  if (connection.authMode === 'oauth') {
+    return {
+      ...baseResult,
+      ok: false,
+      message: 'OAuth authentication is not supported by this MCP client.',
+    };
+  }
   let endpoint: string | undefined;
   let sessionId: string | undefined;
   try {

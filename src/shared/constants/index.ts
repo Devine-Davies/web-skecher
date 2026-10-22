@@ -198,7 +198,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   defaultOutputDestination: 'local_excalidraw',
   theme: 'system',
   requireDataSharingConfirmation: true,
-  persistCredentialsLocally: true,
+  persistCredentialsLocally: false,
   approvedProviders: [],
   approvedProfiles: [],
   profiles: [
