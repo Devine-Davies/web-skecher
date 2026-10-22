@@ -3,6 +3,7 @@ import {
   AIGenerationError,
   type AIProvider,
   type ConnectionResult,
+  type ConnectionCheckOptions,
   type DiagramGenerationRequest,
   type DiagramRefinementRequest,
   type ModelInfo,
@@ -56,7 +57,7 @@ export class AnthropicProvider implements AIProvider {
     this.config = config;
   }
 
-  async validateConfig(): Promise<ConnectionResult> {
+  async validateConfig(options?: ConnectionCheckOptions): Promise<ConnectionResult> {
     const key = this.config.apiKey?.trim() ?? '';
     if (!key) {
       return {
@@ -94,19 +95,23 @@ export class AnthropicProvider implements AIProvider {
     ).replace(/\/+$/, '');
 
     try {
-      const response = await fetchImpl(`${baseUrl}/messages`, {
-        method: 'POST',
+      const response = await fetchImpl(`${baseUrl}/${options?.healthCheckOnly ? 'models' : 'messages'}`, {
+        method: options?.healthCheckOnly ? 'GET' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': key,
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
-        body: JSON.stringify({
-          model: this.config.modelId || 'claude-3-5-haiku-latest',
-          max_tokens: 12,
-          messages: [{ role: 'user', content: 'Reply with OK' }],
-        }),
+        ...(options?.healthCheckOnly
+          ? { signal: AbortSignal.timeout(10000) }
+          : {
+              body: JSON.stringify({
+                model: this.config.modelId || 'claude-3-5-haiku-latest',
+                max_tokens: 12,
+                messages: [{ role: 'user', content: 'Reply with OK' }],
+              }),
+            }),
       });
 
       const latencyMs = Date.now() - startTime;

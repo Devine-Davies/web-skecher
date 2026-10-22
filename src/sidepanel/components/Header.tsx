@@ -3,6 +3,7 @@ import type { ThemeMode } from '@/shared/types';
 
 export interface HeaderProps {
   connectionOk: boolean;
+  connectionLabel: string;
   providerName: string;
   activeView: 'main' | 'settings' | 'onboarding';
   theme: ThemeMode;
@@ -12,6 +13,7 @@ export interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   connectionOk,
+  connectionLabel,
   providerName,
   activeView,
   theme,
@@ -19,22 +21,22 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
 }) => {
   return (
-    <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3.5 py-2.5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+    <header className="sidepanel-header sticky top-0 z-10 px-4 py-4 backdrop-blur">
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => onSelectView('main')}
-          className="flex items-center gap-2 text-left rounded-md focus:outline-none"
+          className="flex min-w-0 items-center gap-2.5 text-left rounded-md"
           aria-label="Visualise Page home"
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white font-bold shadow-sm">
-            VP
+          <div className="app-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-sm">
+            <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="8" y="3" width="8" height="6" rx="1.5"/><path d="M12 9v4M5 13h14M5 13v3m14-3v3"/><rect x="2" y="16" width="6" height="5" rx="1.5"/><rect x="16" y="16" width="6" height="5" rx="1.5"/></svg>
           </div>
-          <div>
-            <div className="text-sm font-semibold leading-tight text-slate-900 dark:text-slate-100">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold leading-tight">
               Visualise Page
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400" role="status">
               <span
                 className={`inline-block h-2 w-2 rounded-full ${
                   connectionOk ? 'bg-emerald-500' : 'bg-amber-500'
@@ -42,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-hidden="true"
               />
               <span>
-                {providerName}: {connectionOk ? 'Connected' : 'Local Preview / Key Optional'}
+                {providerName} · {connectionLabel}
               </span>
             </div>
           </div>
@@ -52,11 +54,13 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onToggleTheme}
-            className="rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="icon-button"
             aria-label="Toggle colour theme"
             title={`Theme: ${theme}`}
           >
-            {theme === 'dark' ? 'Dark' : 'Light'}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              {theme === 'dark' ? <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></> : <path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/>}
+            </svg>
           </button>
 
           <button
@@ -64,14 +68,11 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() =>
               onSelectView(activeView === 'settings' ? 'main' : 'settings')
             }
-            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-              activeView === 'settings'
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'
-            }`}
+            className="icon-button"
+            aria-pressed={activeView === 'settings'}
             aria-label="Open settings"
           >
-            Settings
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m9 3-.5 3-2 1-3-.5-2 4 2.5 2v2L1.5 17l2 4 3-.5 2 1L9 24h5l.5-2.5 2-1 3 .5 2-4-2.5-2v-2l2.5-2-2-4-3 .5-2-1L14 3Z" transform="translate(1 -1) scale(.9)"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
       </div>

@@ -111,11 +111,7 @@ export async function extractFromActiveTab(): Promise<SourceDocument> {
     );
   }
 
-  return {
-    ...SAMPLE_SOURCE_DOCUMENT,
-    id: `doc-${Date.now()}`,
-    url: tabUrl,
-    title: tab.title || SAMPLE_SOURCE_DOCUMENT.title,
-    extractedAt: new Date().toISOString(),
-  };
+  throw new Error(
+    'No readable content could be extracted. Refresh the page and try again, or paste text instead.'
+  );
 }

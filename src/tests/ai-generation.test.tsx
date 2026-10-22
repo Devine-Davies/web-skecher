@@ -10,6 +10,8 @@ import {
   validateAndSanitiseDiagramSpec,
 } from '@/core/ai/pipeline';
 import { OpenAIProvider } from '@/core/ai/providers/openai';
+import { AnthropicProvider } from '@/core/ai/providers/anthropic';
+import { CopilotCLIProvider } from '@/core/ai/providers/copilot';
 import { AIGenerationError } from '@/core/ai/types';
 import {
   clearAllProviderCredentials,
@@ -22,6 +24,37 @@ describe('Volume 03 — AI Generation', () => {
     localStorage.clear();
     sessionStorage.clear();
     await clearAllProviderCredentials();
+  });
+
+  it('checks Anthropic availability without generating tokens while preserving explicit validation', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    const provider = new AnthropicProvider({ apiKey: 'sk-placeholder', fetchFn });
+    expect((await provider.validateConfig({ healthCheckOnly: true })).ok).toBe(true);
+    expect(fetchFn).toHaveBeenLastCalledWith(
+      'https://api.anthropic.com/v1/models',
+      expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
+    );
+    expect(fetchFn.mock.calls[0][1]).not.toHaveProperty('body');
+    await provider.validateConfig();
+    expect(fetchFn).toHaveBeenLastCalledWith(
+      'https://api.anthropic.com/v1/messages',
+      expect.objectContaining({ method: 'POST', body: expect.any(String) })
+    );
+  });
+
+  it('checks Copilot bridge availability without running its auth inference probe', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const provider = new CopilotCLIProvider({ fetchFn });
+    expect((await provider.validateConfig({ healthCheckOnly: true })).ok).toBe(true);
+    expect(fetchFn).toHaveBeenLastCalledWith(
+      'http://localhost:4317/v1/models',
+      expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) })
+    );
+    await provider.validateConfig();
+    expect(fetchFn).toHaveBeenLastCalledWith(
+      'http://localhost:4317/v1/models?checkAuth=1',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 
   it('builds style-specific and complexity-aware prompts with untrusted content boundaries', () => {

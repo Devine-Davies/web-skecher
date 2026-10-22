@@ -120,7 +120,7 @@ describe('Volume 01 — Extension Foundation', () => {
     fireEvent.click(finishBtn);
 
     const visualiseBtn = await screen.findByRole('button', {
-      name: /Visualise Page/i,
+      name: /Generate diagram/i,
     });
     expect(visualiseBtn).toBeInTheDocument();
 

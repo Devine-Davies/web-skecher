@@ -3,6 +3,7 @@ import {
   AIGenerationError,
   type AIProvider,
   type ConnectionResult,
+  type ConnectionCheckOptions,
   type DiagramGenerationRequest,
   type DiagramRefinementRequest,
   type ModelInfo,
@@ -39,7 +40,7 @@ export class CopilotCLIProvider implements AIProvider {
     this.config = config;
   }
 
-  async validateConfig(): Promise<ConnectionResult> {
+  async validateConfig(options?: ConnectionCheckOptions): Promise<ConnectionResult> {
     const isJsdom =
       typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
     if (isJsdom && !this.config.fetchFn) {
@@ -64,9 +65,10 @@ export class CopilotCLIProvider implements AIProvider {
         headers.Authorization = `Bearer ${token}`;
       }
 
-      const response = await fetchImpl(`${baseUrl}/models?checkAuth=1`, {
+      const response = await fetchImpl(`${baseUrl}/models${options?.healthCheckOnly ? '' : '?checkAuth=1'}`, {
         method: 'GET',
         headers,
+        ...(options?.healthCheckOnly ? { signal: AbortSignal.timeout(10000) } : {}),
       });
       const latencyMs = Date.now() - startTime;
       const body = (await response.json().catch(() => ({}))) as {
