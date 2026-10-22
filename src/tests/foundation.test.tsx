@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { SAMPLE_DIAGRAM_SPEC, SAMPLE_SOURCE_DOCUMENT } from '@/shared/constants';
 import { validateDiagramSpec } from '@/core/diagrams/schema';
 import { applyDiagramPatch } from '@/core/diagrams/patches';
@@ -7,8 +7,10 @@ import { renderDiagramToExcalidrawScene } from '@/core/diagrams/renderer';
 import { evaluateTabUrlSupport } from '@/core/extraction';
 import { extractDocumentFromDom } from '@/content/extractor';
 import {
+  createInitialSampleDiagram,
   loadUserSettings,
   saveLastExtractedDocument,
+  saveDiagramRecord,
   saveUserSettings,
 } from '@/core/storage';
 import { App as SidepanelApp } from '@/sidepanel/App';
@@ -205,5 +207,62 @@ describe('Volume 01 — Extension Foundation', () => {
     const source = screen.getByRole('region', { name: 'Original webpage' });
     expect(await within(source).findByText(/No saved page content is available/)).toBeInTheDocument();
     expect(within(source).queryByText('Unrelated')).not.toBeInTheDocument();
+  });
+
+  it('highlights and scrolls to supporting sections when a node is selected or the source view opens', async () => {
+    const diagram = createInitialSampleDiagram();
+    await saveDiagramRecord({
+      ...diagram,
+      spec: {
+        ...diagram.spec,
+        nodes: diagram.spec.nodes.map((node) =>
+          node.id === 'n1' ? { ...node, sourceSectionIds: ['s1', 's3'] } : node
+        ),
+      },
+    });
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<EditorApp />);
+      await screen.findByRole('textbox', { name: 'Diagram title' });
+      fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[0].label));
+      fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+      const first = screen.getByTestId('source-section-s1');
+      const third = screen.getByTestId('source-section-s3');
+      await waitFor(() => expect(first).toHaveClass('ring-2'));
+      expect(third).toHaveClass('ring-2');
+      expect(screen.getByTestId('source-section-s2')).not.toHaveClass('ring-2');
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' });
+      expect(screen.getByText(/Highlighted source sections for/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[1].label));
+      expect(first).not.toHaveClass('ring-2');
+      expect(third).not.toHaveClass('ring-2');
+      expect(screen.getByTestId('source-section-s2')).toHaveClass('ring-2');
+      fireEvent.click(screen.getByRole('button', { name: 'Clear Selection' }));
+      expect(screen.getByTestId('source-section-s2')).not.toHaveClass('ring-2');
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('explains when a selected node has no matching saved source section', async () => {
+    const diagram = createInitialSampleDiagram();
+    await saveDiagramRecord({
+      ...diagram,
+      spec: {
+        ...diagram.spec,
+        nodes: diagram.spec.nodes.map((node) =>
+          node.id === 'n1' ? { ...node, sourceSectionIds: ['missing'] } : node
+        ),
+      },
+    });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[0].label));
+    expect(await screen.findByText('No saved source sections are linked to this node.')).toBeInTheDocument();
+    expect(screen.getByTestId('source-section-s1')).not.toHaveClass('ring-2');
   });
 });

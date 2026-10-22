@@ -50,6 +50,7 @@ export const App: React.FC = () => {
   const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [splitRatio, setSplitRatio] = useState(50);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const sourceSectionRefs = useRef(new Map<string, HTMLElement>());
   const draggingRef = useRef(false);
   const [recoveryCandidate, setRecoveryCandidate] =
     useState<SavedDiagram | null>(null);
@@ -362,6 +363,20 @@ export const App: React.FC = () => {
     }
   })();
   const matchingSourceDoc = sourceDoc?.id === currentDiagram.sourceDocumentId ? sourceDoc : null;
+  const selectedNode = currentDiagram.spec.nodes.find((node) => node.id === selectedNodeId);
+  const supportingSectionIds = new Set(selectedNode?.sourceSectionIds ?? []);
+  const firstSupportingSectionId = matchingSourceDoc?.sections.find((section) =>
+    supportingSectionIds.has(section.id)
+  )?.id;
+
+  useEffect(() => {
+    if (showSource && firstSupportingSectionId) {
+      sourceSectionRefs.current.get(firstSupportingSectionId)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [showSource, firstSupportingSectionId, selectedNodeId]);
 
   const updateSplitRatio = (clientX: number) => {
     const bounds = splitContainerRef.current?.getBoundingClientRect();
@@ -449,9 +464,28 @@ export const App: React.FC = () => {
                 {matchingSourceDoc?.sections.length ? (
                   <>
                     <p className="text-xs text-slate-500 dark:text-slate-400">Extracted page content. Use the link above to view the live webpage.</p>
+                    {selectedNode && (
+                      <p role="status" className="text-xs font-medium text-brand-700 dark:text-brand-100">
+                        {firstSupportingSectionId
+                          ? `Highlighted source sections for ${selectedNode.label}`
+                          : 'No saved source sections are linked to this node.'}
+                      </p>
+                    )}
                     <h2 className="text-lg font-semibold">{matchingSourceDoc.title}</h2>
                     {matchingSourceDoc.sections.map((section) => (
-                      <section key={section.id} className="space-y-1 border-b border-slate-100 pb-3 dark:border-slate-800">
+                      <section
+                        key={section.id}
+                        ref={(element) => {
+                          if (element) sourceSectionRefs.current.set(section.id, element);
+                          else sourceSectionRefs.current.delete(section.id);
+                        }}
+                        data-testid={`source-section-${section.id}`}
+                        className={`space-y-1 rounded-lg border p-3 ${
+                          supportingSectionIds.has(section.id)
+                            ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500 dark:bg-brand-600/20'
+                            : 'border-slate-100 dark:border-slate-800'
+                        }`}
+                      >
                         {section.heading && <h3 className="font-semibold">{section.heading}</h3>}
                         <p className="whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300">{section.text}</p>
                       </section>
@@ -588,7 +622,10 @@ export const App: React.FC = () => {
           value={currentDiagram.id}
           onChange={(e) => {
             const found = diagrams.find((d) => d.id === e.target.value);
-            if (found) setCurrentDiagram(found);
+            if (found) {
+              setCurrentDiagram(found);
+              setSelectedNodeId(null);
+            }
           }}
           className="max-w-40 shrink-0 rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-white"
         >
