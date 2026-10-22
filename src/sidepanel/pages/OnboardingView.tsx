@@ -11,6 +11,7 @@ import type {
   UserSettings,
 } from '@/shared/types';
 import { createAIProvider } from '@/core/ai/providers';
+import { requestEndpointAccess } from '@/core/security/host-permissions';
 
 export interface OnboardingViewProps {
   settings: UserSettings;
@@ -27,6 +28,23 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
   const [apiKey, setApiKey] = useState<string>(
     settings.profiles[0]?.apiKey ?? ''
   );
+  const [modelId, setModelId] = useState<string>(
+    settings.profiles[0]?.modelId ??
+      AI_PROVIDER_CATALOG.find((p) => p.id === settings.activeProviderId)
+        ?.defaultModel ??
+      'gpt-4o-mini'
+  );
+  const [baseUrl, setBaseUrl] = useState<string>(
+    settings.profiles[0]?.baseUrl ??
+      AI_PROVIDER_CATALOG.find((p) => p.id === settings.activeProviderId)
+        ?.defaultBaseUrl ??
+      ''
+  );
+  const [endpointApproved, setEndpointApproved] = useState<boolean>(
+    Boolean(
+      settings.profiles[0]?.approvedEndpoint === settings.profiles[0]?.baseUrl
+    )
+  );
   const [defaultDiagramType, setDefaultDiagramType] = useState<DiagramType>(
     settings.defaultDiagramType
   );
@@ -42,9 +60,36 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
 
   const handleTestConnection = async () => {
     setTestResult('Testing connection…');
+    const configuredBaseUrl =
+      providerId === 'ollama' ||
+      providerId === 'custom' ||
+      providerId === 'copilot'
+        ? baseUrl
+        : '';
+    const endpoint =
+      configuredBaseUrl ||
+      AI_PROVIDER_CATALOG.find((provider) => provider.id === providerId)
+        ?.defaultBaseUrl ||
+      (providerId === 'anthropic'
+        ? 'https://api.anthropic.com'
+        : providerId === 'copilot'
+          ? 'http://localhost:4317'
+          : 'https://api.openai.com');
+    if (
+      providerId !== 'openai' ||
+      apiKey.trim()
+    ) {
+      if (!(await requestEndpointAccess(endpoint))) {
+        setTestSuccess(false);
+        setTestResult('Chrome network access was not granted for this provider.');
+        return;
+      }
+    }
     const provider = createAIProvider(providerId, {
       apiKey,
-      modelId: selectedProvider.defaultModel,
+      modelId,
+      baseUrl: configuredBaseUrl || undefined,
+      approvedEndpoint: endpointApproved ? baseUrl : undefined,
     });
     const res = await provider.validateConfig();
     setTestSuccess(res.ok);
@@ -58,9 +103,14 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
         ? {
             ...p,
             providerId,
-            modelId: selectedProvider.defaultModel,
+            modelId,
             apiKey: apiKey.trim(),
-          }
+              baseUrl: baseUrl.trim() || undefined,
+              approvedEndpoint:
+                endpointApproved && baseUrl.trim()
+                  ? baseUrl.trim()
+                  : undefined,
+            }
         : p
     );
 
@@ -68,7 +118,8 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
       ...settings,
       onboardingCompleted: true,
       activeProviderId: providerId,
-      activeModelId: selectedProvider.defaultModel,
+      activeProfileId: updatedProfiles[0]?.id,
+      activeModelId: modelId,
       defaultDiagramType,
       defaultComplexity,
       profiles: updatedProfiles,
@@ -105,7 +156,20 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
           <select
             id="onboarding-provider"
             value={providerId}
-            onChange={(e) => setProviderId(e.target.value as AIProviderId)}
+            onChange={(e) => {
+              const nextProvider = e.target.value as AIProviderId;
+              setProviderId(nextProvider);
+              setModelId(
+                AI_PROVIDER_CATALOG.find((provider) => provider.id === nextProvider)
+                  ?.defaultModel ?? 'custom-model'
+              );
+              setBaseUrl(
+                AI_PROVIDER_CATALOG.find((provider) => provider.id === nextProvider)
+                  ?.defaultBaseUrl ?? ''
+              );
+              setEndpointApproved(false);
+              setApiKey('');
+            }}
             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
           >
             {AI_PROVIDER_CATALOG.map((p) => (
@@ -115,7 +179,86 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             ))}
           </select>
         </div>
+        <div>
+          <label
+            htmlFor="onboarding-model"
+            className="block text-xs font-medium text-slate-700 dark:text-slate-200"
+          >
+            Model
+          </label>
+          {providerId === 'ollama' || providerId === 'custom' ? (
+            <>
+              <input
+                id="onboarding-model"
+                list="onboarding-model-options"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+              />
+              <datalist id="onboarding-model-options">
+                {selectedProvider.models.map((model) => (
+                  <option key={model.id} value={model.id} />
+                ))}
+              </datalist>
+            </>
+          ) : (
+            <select
+              id="onboarding-model"
+              value={modelId}
+              onChange={(e) => setModelId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+            >
+              {selectedProvider.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
+        {(providerId === 'ollama' || providerId === 'custom') && (
+          <>
+            <div>
+              <label
+                htmlFor="onboarding-base-url"
+                className="block text-xs font-medium text-slate-700 dark:text-slate-200"
+              >
+                {providerId === 'ollama' ? 'Local Ollama URL' : 'Custom base URL'}
+              </label>
+              <input
+                id="onboarding-base-url"
+                type="url"
+                value={baseUrl}
+                onChange={(e) => {
+                  setBaseUrl(e.target.value);
+                  setEndpointApproved(false);
+                }}
+                placeholder={
+                  providerId === 'ollama'
+                    ? 'http://localhost:11434/v1'
+                    : 'https://api.example.com/v1'
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+              />
+            </div>
+            {providerId === 'custom' && (
+              <label className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={endpointApproved}
+                  onChange={(e) => setEndpointApproved(e.target.checked)}
+                />
+                <span>
+                  I approve this exact public HTTPS endpoint. Page text is sent
+                  only after the later content-sharing confirmation.
+                </span>
+              </label>
+            )}
+          </>
+        )}
+
+        {providerId !== 'ollama' && (
         <div>
           <label
             htmlFor="onboarding-api-key"
@@ -135,6 +278,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             Credentials are never synced across browsers or embedded in diagrams.
           </p>
         </div>
+        )}
 
         <div className="flex items-center gap-2">
           <button

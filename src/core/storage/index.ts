@@ -18,6 +18,8 @@ import { createDiagramCheckpoint } from '@/core/diagrams/patches';
 import {
   clearAllProviderCredentials,
   loadProviderApiKey,
+  loadProfileCredential,
+  saveProfileCredential,
   saveProviderApiKey,
 } from '@/core/security/credentials';
 import {
@@ -86,15 +88,37 @@ export async function loadUserSettings(): Promise<UserSettings> {
 
   const activeProviderId =
     stored.activeProviderId ?? DEFAULT_USER_SETTINGS.activeProviderId;
-  const resolvedKey = await loadProviderApiKey(activeProviderId);
-
-  const hydratedProfiles = baseProfiles.map((p, idx) =>
-    idx === 0 && resolvedKey ? { ...p, apiKey: resolvedKey } : p
+  const legacyKey = await loadProviderApiKey(activeProviderId);
+  const persistLocally = Boolean(stored.persistCredentialsLocally);
+  const hydratedProfiles = await Promise.all(
+    baseProfiles.map(async (profile) => {
+      const storedSecret = await loadProfileCredential(profile.id);
+      const secret =
+        storedSecret ||
+        profile.apiKey ||
+        (profile.providerId === activeProviderId ? legacyKey : '');
+      if (secret && !storedSecret) {
+        await saveProfileCredential(profile.id, secret, persistLocally);
+      }
+      return { ...profile, apiKey: secret };
+    })
   );
+  const activeProfile =
+    hydratedProfiles.find((p) => p.id === stored.activeProfileId) ??
+    hydratedProfiles.find((p) => p.providerId === activeProviderId) ??
+    hydratedProfiles[0];
+
+  if (baseProfiles.some((p) => Boolean(p.apiKey))) {
+    await writeKey(STORAGE_KEYS.USER_SETTINGS, {
+      ...stored,
+      profiles: baseProfiles.map(({ apiKey: _apiKey, ...profile }) => profile),
+    });
+  }
 
   return {
     ...DEFAULT_USER_SETTINGS,
     ...stored,
+    activeProfileId: activeProfile?.id,
     profiles: hydratedProfiles,
     mcpConnections:
       stored.mcpConnections && stored.mcpConnections.length > 0
@@ -104,22 +128,29 @@ export async function loadUserSettings(): Promise<UserSettings> {
 }
 
 export async function saveUserSettings(settings: UserSettings): Promise<UserSettings> {
-  const primaryKey = settings.profiles[0]?.apiKey ?? '';
   const persistLocally = Boolean(settings.persistCredentialsLocally);
-
-  await saveProviderApiKey(
-    settings.activeProviderId,
-    primaryKey,
-    persistLocally
+  const previous = await readKey<Partial<UserSettings>>(
+    STORAGE_KEYS.USER_SETTINGS,
+    {}
   );
+  const retainedProfileIds = new Set(settings.profiles.map((profile) => profile.id));
+  for (const profile of previous.profiles ?? []) {
+    if (!retainedProfileIds.has(profile.id)) {
+      await saveProfileCredential(profile.id, '', false);
+    }
+  }
+  for (const profile of settings.profiles) {
+    await saveProfileCredential(
+      profile.id,
+      profile.apiKey ?? '',
+      persistLocally
+    );
+  }
+  await saveProviderApiKey(settings.activeProviderId, '', persistLocally);
 
-  // Strip raw apiKey from general settings record unless user explicitly opted into persistent local storage
   const sanitisedSettings: UserSettings = {
     ...settings,
-    profiles: settings.profiles.map((p) => ({
-      ...p,
-      apiKey: persistLocally ? p.apiKey : '',
-    })),
+    profiles: settings.profiles.map(({ apiKey: _apiKey, ...profile }) => profile),
   };
 
   await writeKey(STORAGE_KEYS.USER_SETTINGS, sanitisedSettings);

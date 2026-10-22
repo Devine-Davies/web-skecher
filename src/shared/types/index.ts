@@ -229,6 +229,7 @@ export interface SavedDiagram {
   spec: DiagramSpec;
   scene: ExcalidrawSceneData;
   providerId: AIProviderId;
+  providerProfileId?: string;
   modelId: string;
   generationMode?: 'live_ai' | 'local_heuristic';
   generationLatencyMs?: number;
@@ -249,6 +250,8 @@ export interface ProviderProfile {
   modelId: string;
   apiKey?: string;
   baseUrl?: string;
+  approvedEndpoint?: string;
+  additionalHeaders?: Record<string, string>;
   timeoutMs: number;
 }
 
@@ -261,11 +264,14 @@ export interface MCPConnection {
   status: 'disconnected' | 'connecting' | 'connected' | 'error';
   allowedTools: string[];
   authMode: 'none' | 'bearer' | 'oauth';
+  approved?: boolean;
+  approvedEndpoint?: string;
 }
 
 export interface UserSettings {
   onboardingCompleted: boolean;
   activeProviderId: AIProviderId;
+  activeProfileId?: string;
   activeModelId: string;
   defaultDiagramType: DiagramType;
   defaultComplexity: ComplexityLevel;
@@ -274,6 +280,7 @@ export interface UserSettings {
   requireDataSharingConfirmation: boolean;
   persistCredentialsLocally?: boolean;
   approvedProviders?: AIProviderId[];
+  approvedProfiles?: string[];
   profiles: ProviderProfile[];
   mcpConnections: MCPConnection[];
 }

@@ -16,6 +16,11 @@ export interface RunGenerationOptions {
   providerId: AIProviderId;
   modelId: string;
   apiKey?: string;
+  providerProfileId?: string;
+  baseUrl?: string;
+  approvedEndpoint?: string;
+  additionalHeaders?: Record<string, string>;
+  timeoutMs?: number;
   diagramType: DiagramType;
   complexity: ComplexityLevel;
   additionalInstructions?: string;
@@ -40,12 +45,23 @@ export async function runDiagramGenerationFlow(
   const trimmedKey = options.apiKey?.trim() ?? '';
   const isLiveAiKey =
     options.providerId === 'copilot' ||
+    options.providerId === 'ollama' ||
+    (options.providerId === 'custom' &&
+      Boolean(options.approvedEndpoint) &&
+      options.approvedEndpoint === options.baseUrl) ||
     (trimmedKey.startsWith('sk-') && trimmedKey.length >= 12);
   const startTime = Date.now();
 
   const provider = createAIProvider(options.providerId, {
     apiKey: trimmedKey,
     modelId: options.modelId,
+    baseUrl: options.baseUrl,
+    approvedEndpoint:
+      options.approvedEndpoint === options.baseUrl
+        ? options.approvedEndpoint
+        : undefined,
+    additionalHeaders: options.additionalHeaders,
+    timeoutMs: options.timeoutMs,
   });
 
   notify('designing_diagram');
@@ -70,6 +86,7 @@ export async function runDiagramGenerationFlow(
     spec,
     scene,
     providerId: options.providerId,
+    providerProfileId: options.providerProfileId,
     modelId: options.modelId,
     generationMode: isLiveAiKey ? 'live_ai' : 'local_heuristic',
     generationLatencyMs,

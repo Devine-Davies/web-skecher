@@ -161,7 +161,7 @@ export const AI_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       { id: 'mistral', label: 'Mistral (Local)' },
     ],
     requiresApiKey: false,
-    defaultBaseUrl: 'http://localhost:11434',
+    defaultBaseUrl: 'http://localhost:11434/v1',
   },
   {
     id: 'custom',
@@ -191,6 +191,7 @@ export const GENERATION_STAGES: GenerationStageMeta[] = [
 export const DEFAULT_USER_SETTINGS: UserSettings = {
   onboardingCompleted: false,
   activeProviderId: 'openai',
+  activeProfileId: 'default-openai',
   activeModelId: 'gpt-4o-mini',
   defaultDiagramType: 'flowchart',
   defaultComplexity: 'simple',
@@ -199,6 +200,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   requireDataSharingConfirmation: true,
   persistCredentialsLocally: true,
   approvedProviders: [],
+  approvedProfiles: [],
   profiles: [
     {
       id: 'default-openai',
@@ -217,8 +219,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
       transport: 'streamable-http',
       enabled: false,
       status: 'disconnected',
-      allowedTools: ['read_me', 'create_view'],
+      allowedTools: [],
       authMode: 'none',
+      approved: false,
     },
   ],
 };
