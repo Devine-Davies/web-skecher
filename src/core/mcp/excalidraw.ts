@@ -7,6 +7,7 @@ export const EXCALIDRAW_MCP_PRESET: MCPConnection = {
   transport: 'streamable-http',
   enabled: false,
   status: 'disconnected',
-  allowedTools: ['read_me', 'create_view'],
+  allowedTools: [],
   authMode: 'none',
+  approved: false,
 };

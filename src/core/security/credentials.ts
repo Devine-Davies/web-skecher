@@ -92,13 +92,56 @@ export async function saveProviderApiKey(
   await writeCredentialMap(localMap, true);
 }
 
-export async function loadProviderApiKey(providerId: AIProviderId): Promise<string> {
+export async function saveProfileCredential(
+  profileId: string,
+  secret: string,
+  persistLocally = false
+): Promise<void> {
+  await saveCredential(`profile:${profileId}`, secret, persistLocally);
+}
+
+export async function loadProfileCredential(profileId: string): Promise<string> {
+  return loadCredential(`profile:${profileId}`);
+}
+
+export async function saveMCPSecret(
+  connectionId: string,
+  secret: string,
+  persistLocally = false
+): Promise<void> {
+  await saveCredential(`mcp:${connectionId}`, secret, persistLocally);
+}
+
+export async function loadMCPSecret(connectionId: string): Promise<string> {
+  return loadCredential(`mcp:${connectionId}`);
+}
+
+async function saveCredential(
+  id: string,
+  secret: string,
+  persistLocally: boolean
+): Promise<void> {
+  const trimmed = secret.trim();
   const sessionMap = await readCredentialMap(false);
-  if (sessionMap[providerId]) {
-    return sessionMap[providerId];
-  }
+  if (trimmed) sessionMap[id] = trimmed;
+  else delete sessionMap[id];
+  await writeCredentialMap(sessionMap, false);
+
   const localMap = await readCredentialMap(true);
-  return localMap[providerId] ?? '';
+  if (persistLocally && trimmed) localMap[id] = trimmed;
+  else delete localMap[id];
+  await writeCredentialMap(localMap, true);
+}
+
+async function loadCredential(id: string): Promise<string> {
+  const sessionMap = await readCredentialMap(false);
+  if (sessionMap[id]) return sessionMap[id];
+  const localMap = await readCredentialMap(true);
+  return localMap[id] ?? '';
+}
+
+export async function loadProviderApiKey(providerId: AIProviderId): Promise<string> {
+  return loadCredential(providerId);
 }
 
 export async function clearAllProviderCredentials(): Promise<void> {

@@ -151,9 +151,28 @@ export const App: React.FC = () => {
 
   const handleApplyRefinement = async (instruction: string) => {
     const settings = await loadUserSettings();
+    const profile =
+      settings.profiles.find(
+        (p) => p.id === currentDiagram.providerProfileId
+      ) ??
+      settings.profiles.find(
+        (p) => p.providerId === currentDiagram.providerId
+      );
     const provider = createAIProvider(currentDiagram.providerId, {
-      apiKey: settings.profiles[0]?.apiKey,
+      apiKey: profile?.apiKey,
       modelId: currentDiagram.modelId,
+      baseUrl:
+        currentDiagram.providerId === 'ollama' ||
+        currentDiagram.providerId === 'custom' ||
+        currentDiagram.providerId === 'copilot'
+          ? profile?.baseUrl
+          : undefined,
+      approvedEndpoint:
+        profile && profile.approvedEndpoint === profile.baseUrl
+          ? profile.approvedEndpoint
+          : undefined,
+      additionalHeaders: profile?.additionalHeaders,
+      timeoutMs: profile?.timeoutMs,
     });
     const patch = await provider.refineDiagram({
       currentDiagram: currentDiagram.spec,

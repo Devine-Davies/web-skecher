@@ -30,6 +30,8 @@ export interface OpenAIProviderConfig {
   timeoutMs?: number;
   maxRetries?: number;
   baseUrl?: string;
+  approvedEndpoint?: string;
+  additionalHeaders?: Record<string, string>;
   fetchFn?: typeof fetch;
 }
 

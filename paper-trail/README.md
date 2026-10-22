@@ -5,5 +5,5 @@
 | [03](vols/03-ai-generation.md) | AI Generation | m1 | done | 2026-10-21 |
 | [04](vols/04-excalidraw-rendering.md) | Excalidraw Rendering | m1 | done | 2026-10-21 |
 | [05](vols/05-refinement-and-persistence.md) | Refinement and Persistence | m1 | done | 2026-10-22 |
-| [06](vols/06-additional-connections.md) | Additional Connections | m1 | planned | |
+| [06](vols/06-additional-connections.md) | Additional Connections | m1 | in-progress | |
 | [07](vols/07-production-readiness.md) | Production Readiness | m1 | planned | |

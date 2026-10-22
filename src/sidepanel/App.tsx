@@ -34,6 +34,8 @@ import {
   prepareDocumentForContextBudget,
 } from '@/core/extraction';
 import { runDiagramGenerationFlow } from '@/core/ai/generation';
+import { requestEndpointAccess } from '@/core/security/host-permissions';
+import { getProviderApprovalKey } from '@/core/security/provider-approval';
 import { extractFromActiveTab, getActiveTabMetadata, openEditorTab } from '@/background/tabs';
 import { Header } from './components/Header';
 import { StageProgress } from './components/StageProgress';
@@ -58,6 +60,9 @@ export const App: React.FC = () => {
   const [selectedText, setSelectedText] = useState<string>('');
 
   const [providerId, setProviderId] = useState<AIProviderId>('openai');
+  const [profileId, setProfileId] = useState<string>(
+    DEFAULT_USER_SETTINGS.activeProfileId ?? ''
+  );
   const [modelId, setModelId] = useState<string>('gpt-4o-mini');
   const [diagramType, setDiagramType] = useState<DiagramType>('flowchart');
   const [complexity, setComplexity] = useState<ComplexityLevel>('simple');
@@ -88,6 +93,9 @@ export const App: React.FC = () => {
       if (!mounted) return;
       setSettings(loadedSettings);
       setProviderId(loadedSettings.activeProviderId);
+      setProfileId(
+        loadedSettings.activeProfileId ?? loadedSettings.profiles[0]?.id ?? ''
+      );
       setModelId(loadedSettings.activeModelId);
       setDiagramType(loadedSettings.defaultDiagramType);
       setComplexity(loadedSettings.defaultComplexity);
@@ -163,8 +171,16 @@ export const App: React.FC = () => {
     AI_PROVIDER_CATALOG.find((p) => p.id === providerId) ??
     AI_PROVIDER_CATALOG[0];
 
+  const activeProfile =
+    settings.profiles.find(
+      (profile) => profile.id === profileId && profile.providerId === providerId
+    ) ?? settings.profiles.find((profile) => profile.providerId === providerId);
   const hasApiKey =
-    providerId === 'copilot' || Boolean(settings.profiles[0]?.apiKey?.trim());
+    providerId === 'copilot' ||
+    providerId === 'ollama' ||
+    (providerId === 'custom' &&
+      Boolean(activeProfile?.approvedEndpoint === activeProfile?.baseUrl)) ||
+    Boolean(activeProfile?.apiKey?.trim());
 
   const handleToggleTheme = async () => {
     const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
@@ -217,8 +233,9 @@ export const App: React.FC = () => {
     if (isGenerating) return;
     setErrorMessage(null);
 
-    const providerAlreadyApproved = (settings.approvedProviders ?? []).includes(
-      providerId
+    const approvalKey = getProviderApprovalKey(providerId, activeProfile);
+    const providerAlreadyApproved = (settings.approvedProfiles ?? []).includes(
+      approvalKey
     );
     if (settings.requireDataSharingConfirmation && !providerAlreadyApproved) {
       setAwaitingApproval(true);
@@ -229,6 +246,33 @@ export const App: React.FC = () => {
   };
 
   const executeGeneration = async () => {
+    const providerNeedsNetwork =
+      providerId === 'ollama' ||
+      providerId === 'copilot' ||
+      (providerId === 'custom' &&
+        activeProfile?.approvedEndpoint === activeProfile?.baseUrl) ||
+      Boolean(activeProfile?.apiKey?.trim());
+    if (providerNeedsNetwork) {
+      const endpoint =
+        (providerId === 'ollama' ||
+        providerId === 'custom' ||
+        providerId === 'copilot'
+          ? activeProfile?.baseUrl
+          : undefined) ||
+        AI_PROVIDER_CATALOG.find((provider) => provider.id === providerId)
+          ?.defaultBaseUrl ||
+        (providerId === 'anthropic'
+          ? 'https://api.anthropic.com'
+          : providerId === 'copilot'
+            ? 'http://localhost:4317'
+            : 'https://api.openai.com');
+      if (!(await requestEndpointAccess(endpoint))) {
+        setErrorMessage(
+          'Chrome did not grant network access to the selected provider. Allow this host and retry.'
+        );
+        return;
+      }
+    }
     setAwaitingApproval(false);
     setIsGenerating(true);
     setCompletedStages([]);
@@ -236,11 +280,12 @@ export const App: React.FC = () => {
 
     try {
       if (rememberProviderApproval) {
-        const currentApproved = settings.approvedProviders ?? [];
-        if (!currentApproved.includes(providerId)) {
+        const currentApproved = settings.approvedProfiles ?? [];
+        const approvalKey = getProviderApprovalKey(providerId, activeProfile);
+        if (!currentApproved.includes(approvalKey)) {
           const updatedSettings = await saveUserSettings({
             ...settings,
-            approvedProviders: [...currentApproved, providerId],
+            approvedProfiles: [...currentApproved, approvalKey],
           });
           setSettings(updatedSettings);
         }
@@ -257,7 +302,19 @@ export const App: React.FC = () => {
         sourceDocument: docToUse,
         providerId,
         modelId,
-        apiKey: settings.profiles[0]?.apiKey,
+        providerProfileId: activeProfile?.id,
+        apiKey: activeProfile?.apiKey,
+        baseUrl:
+          providerId === 'ollama' || providerId === 'custom' || providerId === 'copilot'
+            ? activeProfile?.baseUrl
+            : undefined,
+        approvedEndpoint:
+          activeProfile &&
+          activeProfile.approvedEndpoint === activeProfile.baseUrl
+            ? activeProfile.approvedEndpoint
+            : undefined,
+        additionalHeaders: activeProfile?.additionalHeaders,
+        timeoutMs: activeProfile?.timeoutMs,
         diagramType,
         complexity,
         additionalInstructions,
@@ -315,6 +372,7 @@ export const App: React.FC = () => {
             const saved = await saveUserSettings(updated);
             setSettings(saved);
             setProviderId(saved.activeProviderId);
+            setProfileId(saved.activeProfileId ?? saved.profiles[0]?.id ?? '');
             setModelId(saved.activeModelId);
             setDiagramType(saved.defaultDiagramType);
             setComplexity(saved.defaultComplexity);
@@ -330,6 +388,7 @@ export const App: React.FC = () => {
             const saved = await saveUserSettings(updated);
             setSettings(saved);
             setProviderId(saved.activeProviderId);
+            setProfileId(saved.activeProfileId ?? saved.profiles[0]?.id ?? '');
             setModelId(saved.activeModelId);
             setDiagramType(saved.defaultDiagramType);
             setComplexity(saved.defaultComplexity);
@@ -495,6 +554,35 @@ export const App: React.FC = () => {
             </h2>
 
             <div className="grid grid-cols-2 gap-2">
+              <div className="col-span-2">
+                <label
+                  htmlFor="gen-profile"
+                  className="block text-[11px] font-medium text-slate-700 dark:text-slate-200"
+                >
+                  Saved Provider Profile
+                </label>
+                <select
+                  id="gen-profile"
+                  value={activeProfile?.id ?? ''}
+                  onChange={(e) => {
+                    const selected = settings.profiles.find(
+                      (profile) => profile.id === e.target.value
+                    );
+                    if (selected) {
+                      setProfileId(selected.id);
+                      setProviderId(selected.providerId);
+                      setModelId(selected.modelId);
+                    }
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                >
+                  {settings.profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label
                   htmlFor="gen-provider"
@@ -509,7 +597,16 @@ export const App: React.FC = () => {
                     const next = e.target.value as AIProviderId;
                     setProviderId(next);
                     const found = AI_PROVIDER_CATALOG.find((p) => p.id === next);
-                    if (found) setModelId(found.defaultModel);
+                    const profile = settings.profiles.find(
+                      (candidate) => candidate.providerId === next
+                    );
+                    if (profile) {
+                      setProfileId(profile.id);
+                      setModelId(profile.modelId);
+                    } else if (found) {
+                      setProfileId('');
+                      setModelId(found.defaultModel);
+                    }
                   }}
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
                 >
@@ -528,18 +625,35 @@ export const App: React.FC = () => {
                 >
                   AI Model
                 </label>
-                <select
-                  id="gen-model"
-                  value={modelId}
-                  onChange={(e) => setModelId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
-                >
-                  {currentProviderCatalog.models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                {providerId === 'ollama' || providerId === 'custom' ? (
+                  <>
+                    <input
+                      id="gen-model"
+                      list="gen-model-options"
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                    />
+                    <datalist id="gen-model-options">
+                      {currentProviderCatalog.models.map((model) => (
+                        <option key={model.id} value={model.id} />
+                      ))}
+                    </datalist>
+                  </>
+                ) : (
+                  <select
+                    id="gen-model"
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    {currentProviderCatalog.models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -614,10 +728,19 @@ export const App: React.FC = () => {
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
                 >
                   <option value="local_excalidraw">Excalidraw (Local)</option>
-                  <option value="remote_mcp">Excalidraw MCP + Local</option>
+                  <option value="remote_mcp">MCP preview (local output only)</option>
                 </select>
               </div>
             </div>
+            {outputDestination === 'remote_mcp' && (
+              <div
+                role="status"
+                className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+              >
+                Remote MCP Apps are not hosted by this extension. The editable
+                local Excalidraw scene is always created and remains the output.
+              </div>
+            )}
 
             <div>
               <label
@@ -659,7 +782,8 @@ export const App: React.FC = () => {
                   </li>
                   <li>
                     <strong>MCP server receives content:</strong>{' '}
-                    {outputDestination === 'remote_mcp' ? 'Yes' : 'No (Local renderer only)'}
+                    No. This extension does not call MCP tools during generation;
+                    page content is sent only to the selected AI provider.
                   </li>
                 </ul>
                 <div className="max-h-28 overflow-y-auto rounded border border-amber-200 bg-white/80 p-2 text-[11px] text-slate-700 dark:border-amber-800 dark:bg-slate-900 dark:text-slate-200">

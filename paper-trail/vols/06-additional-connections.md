@@ -1,7 +1,7 @@
 ---
-status: planned        # planned | in-progress | blocked | done
+status: in-progress    # planned | in-progress | blocked | done
 milestone: m1
-started:
+started: 2026-10-22
 completed:
 ---
 
@@ -11,14 +11,14 @@ completed:
 Expand AI provider support to Anthropic, Ollama, and custom OpenAI-compatible endpoints with saved provider profiles, and implement the configurable remote MCP connection manager with Excalidraw MCP integration and automatic fallback to the local renderer.
 
 ## Scope
-- [ ] Anthropic provider adapter
-- [ ] Ollama local provider adapter (with browser CORS and local connectivity handling)
-- [ ] Custom OpenAI-compatible provider adapter with explicit endpoint approval
-- [ ] Multiple saved provider profiles
-- [ ] MCP connection manager (`MCPConnection` model, `streamable-http` transport, separate secret storage)
-- [ ] MCP connection wizard, health testing, and runtime tool discovery (`read_me`, `create_view`, schema inspection)
+- [x] Anthropic provider adapter
+- [x] Ollama local provider adapter (with browser CORS and local connectivity handling)
+- [x] Custom OpenAI-compatible provider adapter with explicit endpoint approval
+- [x] Multiple saved provider profiles
+- [x] MCP connection manager (`MCPConnection` model, `streamable-http` transport, separate secret storage)
+- [x] MCP connection wizard, health testing, and runtime tool discovery (`read_me`, `create_view`, schema inspection)
 - [ ] Optional preset and proof-of-concept integration for `https://mcp.excalidraw.com`
-- [ ] Per-tool permissions, user approval gates, and seamless fallback to the local Excalidraw renderer
+- [x] Per-tool permissions, user approval gates, and local Excalidraw fallback
 
 ## Out of scope
 - Running arbitrary local Node.js MCP servers inside the Chrome extension without a Native Messaging companion
@@ -28,6 +28,10 @@ Expand AI provider support to Anthropic, Ollama, and custom OpenAI-compatible en
 ## Notes
 - **Acceptance criteria:** Multiple provider types work, and failed MCP connections do not prevent local diagram generation.
 - Extends [03 — AI Generation](./03-ai-generation.md) and [04 — Excalidraw Rendering](./04-excalidraw-rendering.md).
+- Provider secrets are keyed by profile ID and kept outside general settings; MCP tokens use a separate secret key. Session storage is the default; persistent local storage remains an explicit user choice.
+- The Excalidraw preset is available for protocol initialization and runtime schema discovery, but the official `create_view` tool is an MCP App requiring a sandboxed UI resource and host-to-iframe bridge. This extension does not implement that host and does not send generated diagrams to `create_view` or claim an interactive remote integration.
+- Checked the [official server implementation](https://github.com/excalidraw/excalidraw-mcp/blob/main/src/server.ts) and the [MCP Apps host specification](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx). The server documents `read_me` and `create_view` and associates the latter with a `ui://` resource; the browser extension is not an MCP Apps host. The live endpoint could not be reached for a handshake during implementation, so deployed tool schemas, CORS, and compatibility remain unverified.
+- Local Excalidraw rendering remains the only generation output. OAuth authentication and arbitrary local/private MCP endpoints are unsupported; bearer-token authentication and public HTTPS MCP endpoints are supported.
 
 ---
 
