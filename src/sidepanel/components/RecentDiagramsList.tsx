@@ -17,6 +17,7 @@ export const RecentDiagramsList: React.FC<RecentDiagramsListProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
+  const [showAll, setShowAll] = useState(false);
 
   const startRename = (diagram: SavedDiagram) => {
     setEditingId(diagram.id);
@@ -33,26 +34,32 @@ export const RecentDiagramsList: React.FC<RecentDiagramsListProps> = ({
   return (
     <section
       aria-label="Recent saved diagrams"
-      className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+      className="recent-section"
     >
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-          Recent Diagrams ({diagrams.length})
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="section-label">
+          Recent <span className="recent-count">{diagrams.length}</span>
         </h2>
+        {diagrams.length > 3 && (
+          <button type="button" className="change-link text-xs"
+            aria-expanded={showAll} onClick={() => setShowAll((value) => !value)}>
+            {showAll ? 'Show less' : 'View all'}
+          </button>
+        )}
       </div>
 
       {diagrams.length === 0 ? (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          No saved diagrams yet. Click Visualise Page above to generate your first diagram.
+          No saved diagrams yet. Generate a diagram to see it here.
         </p>
       ) : (
         <ul className="space-y-2">
-          {diagrams.slice(0, 6).map((diagram) => (
+          {(showAll ? diagrams : diagrams.slice(0, 3)).map((diagram) => (
             <li
               key={diagram.id}
-              className="rounded-lg border border-slate-100 bg-slate-50/70 p-2 dark:border-slate-800 dark:bg-slate-800/50 space-y-1.5"
+              className="recent-row space-y-2"
             >
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   {editingId === diagram.id ? (
                     <div className="flex items-center gap-1">
@@ -77,7 +84,7 @@ export const RecentDiagramsList: React.FC<RecentDiagramsListProps> = ({
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-slate-500 dark:text-slate-400">
                     <span className="capitalize">
                       {diagram.diagramType.replace('_', ' ')}
                     </span>
@@ -88,7 +95,7 @@ export const RecentDiagramsList: React.FC<RecentDiagramsListProps> = ({
                     <span>•</span>
                     <span>
                       {diagram.generationMode === 'live_ai'
-                        ? `⚡ Live AI (${diagram.providerId})`
+                        ? diagram.providerId === 'copilot' ? 'Copilot CLI' : diagram.providerId
                         : 'Local Heuristic'}
                     </span>
                   </div>

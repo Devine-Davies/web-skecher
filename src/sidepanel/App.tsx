@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AI_PROVIDER_CATALOG,
   COMPLEXITY_PRESETS,
@@ -34,6 +34,7 @@ import {
   prepareDocumentForContextBudget,
 } from '@/core/extraction';
 import { runDiagramGenerationFlow } from '@/core/ai/generation';
+import { createAIProvider } from '@/core/ai/providers';
 import { requestEndpointAccess } from '@/core/security/host-permissions';
 import { getProviderApprovalKey } from '@/core/security/provider-approval';
 import { extractFromActiveTab, getActiveTabMetadata, openEditorTab } from '@/background/tabs';
@@ -43,18 +44,36 @@ import { RecentDiagramsList } from './components/RecentDiagramsList';
 import { OnboardingView } from './pages/OnboardingView';
 import { SettingsView } from './pages/SettingsView';
 
+const EMPTY_SOURCE: SourceDocument = {
+  ...SAMPLE_SOURCE_DOCUMENT,
+  title: '',
+  url: '',
+  sections: [],
+  wordCount: 0,
+  selectedText: '',
+};
+
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [activeView, setActiveView] = useState<'main' | 'settings' | 'onboarding'>('main');
   const [tabMeta, setTabMeta] = useState<ActiveTabMetadata>({
-    url: SAMPLE_SOURCE_DOCUMENT.url,
-    title: SAMPLE_SOURCE_DOCUMENT.title,
-    domain: 'www.smashingmagazine.com',
-    supported: true,
+    url: '',
+    title: 'Reading active page…',
+    domain: '',
+    supported: false,
   });
-  const [sourceDoc, setSourceDoc] = useState<SourceDocument>(SAMPLE_SOURCE_DOCUMENT);
+  const [pageDoc, setPageDoc] = useState<SourceDocument>(EMPTY_SOURCE);
+  const [manualDoc, setManualDoc] = useState<SourceDocument | null>(null);
+  const [pageReady, setPageReady] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(true);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const extractionRequest = useRef(0);
   const [showContentPreview, setShowContentPreview] = useState<boolean>(false);
   const [showManualPaste, setShowManualPaste] = useState<boolean>(false);
+  const sourceDoc = showManualPaste ? manualDoc ?? EMPTY_SOURCE : pageDoc;
+  const hasUsableSource =
+    (showManualPaste ? Boolean(manualDoc) : pageReady) &&
+    sourceDoc.sections.some((section) => section.text.trim());
   const [pastedTitle, setPastedTitle] = useState<string>('');
   const [pastedText, setPastedText] = useState<string>('');
   const [selectedText, setSelectedText] = useState<string>('');
@@ -78,6 +97,7 @@ export const App: React.FC = () => {
   const [completedStages, setCompletedStages] = useState<GenerationStageId[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recentDiagrams, setRecentDiagrams] = useState<SavedDiagram[]>([]);
+  const [connection, setConnection] = useState({ ok: false, label: 'Not checked' });
 
   useEffect(() => {
     let mounted = true;
@@ -101,33 +121,18 @@ export const App: React.FC = () => {
       setComplexity(loadedSettings.defaultComplexity);
       setOutputDestination(loadedSettings.defaultOutputDestination);
       setRecentDiagrams(loadedDiagrams);
-      setSourceDoc(loadedDoc);
-      setSelectedText(loadedDoc.selectedText ?? '');
       setTabMeta(activeTab);
 
       if (!loadedSettings.onboardingCompleted) {
         setActiveView('onboarding');
       }
 
-      if (
-        typeof chrome !== 'undefined' &&
-        Boolean(chrome.tabs?.query) &&
-        activeTab.supported
-      ) {
-        try {
-          const liveDoc = await extractFromActiveTab();
-          const prepared = prepareDocumentForContextBudget(
-            liveDoc,
-            DEFAULT_MODEL_TOKEN_BUDGET
-          );
-          if (mounted) {
-            setSourceDoc(prepared);
-            setTabMeta(evaluateTabUrlSupport(prepared.url, prepared.title));
-            await saveLastExtractedDocument(prepared);
-          }
-        } catch {
-          // Keep stored document if live tab extraction is blocked
-        }
+      if (typeof chrome === 'undefined' || !chrome.tabs?.query) {
+        setPageDoc(loadedDoc);
+        setPageReady(true);
+        setIsExtracting(false);
+      } else {
+        await handleExtractPage();
       }
     }
     init();
@@ -151,6 +156,7 @@ export const App: React.FC = () => {
 
     return () => {
       mounted = false;
+      extractionRequest.current += 1;
       if (typeof chrome !== 'undefined' && chrome.tabs) {
         chrome.tabs.onActivated?.removeListener(handleTabActivated);
         chrome.tabs.onUpdated?.removeListener(handleTabUpdated);
@@ -179,34 +185,101 @@ export const App: React.FC = () => {
     providerId === 'copilot' ||
     providerId === 'ollama' ||
     (providerId === 'custom' &&
-      Boolean(activeProfile?.approvedEndpoint === activeProfile?.baseUrl)) ||
+      Boolean(activeProfile?.baseUrl && activeProfile.approvedEndpoint === activeProfile.baseUrl)) ||
     Boolean(activeProfile?.apiKey?.trim());
 
+  useEffect(() => {
+    let cancelled = false;
+    let checking = false;
+    const check = async () => {
+      if (checking) return;
+      checking = true;
+      if (!hasApiKey) {
+        setConnection({ ok: false, label: 'Local preview' });
+        checking = false;
+        return;
+      }
+      setConnection({ ok: false, label: 'Checking…' });
+      try {
+        const baseUrl = providerId === 'copilot' || providerId === 'ollama' || providerId === 'custom'
+          ? activeProfile?.baseUrl : undefined;
+        const endpoint = baseUrl ||
+          currentProviderCatalog.defaultBaseUrl ||
+          (providerId === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com');
+        if (typeof chrome !== 'undefined' && chrome.permissions?.contains) {
+          const url = new URL(endpoint);
+          const allowed = await chrome.permissions.contains({
+            origins: [`${url.protocol}//${url.hostname}/*`],
+          });
+          if (!allowed) {
+            if (!cancelled) setConnection({ ok: false, label: 'Allow access in Settings' });
+            return;
+          }
+        }
+        const result = await createAIProvider(providerId, {
+          ...activeProfile,
+          baseUrl,
+          modelId,
+        }).validateConfig();
+        if (!cancelled) {
+          setConnection({ ok: result.ok, label: result.ok ? 'Connected' : 'Disconnected' });
+        }
+      } catch {
+        if (!cancelled) setConnection({ ok: false, label: 'Disconnected' });
+      } finally {
+        checking = false;
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [providerId, modelId, activeProfile, hasApiKey, currentProviderCatalog]);
+
+  useEffect(() => {
+    setAwaitingApproval(false);
+    setSelectedText(sourceDoc.selectedText ?? '');
+  }, [sourceDoc]);
+
   const handleToggleTheme = async () => {
-    const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
+    const nextTheme = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
     const updated = await saveUserSettings({ ...settings, theme: nextTheme });
     setSettings(updated);
   };
 
   const handleExtractPage = async () => {
+    const request = ++extractionRequest.current;
+    setPageReady(false);
+    setPageDoc(EMPTY_SOURCE);
+    setSourceError(null);
+    setIsExtracting(true);
     setErrorMessage(null);
-    const latestMeta = await getActiveTabMetadata();
-    setTabMeta(latestMeta);
     try {
+      const latestMeta = await getActiveTabMetadata();
+      if (request !== extractionRequest.current) return;
+      setTabMeta(latestMeta);
+      if (!latestMeta.supported) {
+        throw new Error(latestMeta.unsupportedReason || 'This page cannot be read. Paste text instead.');
+      }
       const rawDoc = await extractFromActiveTab();
       const prepared = prepareDocumentForContextBudget(
         rawDoc,
         DEFAULT_MODEL_TOKEN_BUDGET
       );
-      setSourceDoc(prepared);
+      if (request !== extractionRequest.current) return;
+      if (!prepared.sections.some((section) => section.text.trim())) {
+        throw new Error('No readable text was found on this page. Paste text instead.');
+      }
+      setPageDoc(prepared);
+      setPageReady(true);
       setTabMeta(evaluateTabUrlSupport(prepared.url, prepared.title));
-      setShowManualPaste(false);
       await saveLastExtractedDocument(prepared);
     } catch (err: unknown) {
-      setErrorMessage(
+      if (request !== extractionRequest.current) return;
+      setSourceError(
         err instanceof Error ? err.message : 'Unable to extract active page.'
       );
-      setShowManualPaste(true);
+    } finally {
+      if (request === extractionRequest.current) setIsExtracting(false);
     }
   };
 
@@ -224,13 +297,12 @@ export const App: React.FC = () => {
       manualDoc,
       DEFAULT_MODEL_TOKEN_BUDGET
     );
-    setSourceDoc(prepared);
+    setManualDoc(prepared);
     await saveLastExtractedDocument(prepared);
-    setShowManualPaste(false);
   };
 
   const handlePrimaryVisualiseClick = () => {
-    if (isGenerating) return;
+    if (isGenerating || !hasUsableSource) return;
     setErrorMessage(null);
 
     const approvalKey = getProviderApprovalKey(providerId, activeProfile);
@@ -246,6 +318,7 @@ export const App: React.FC = () => {
   };
 
   const executeGeneration = async () => {
+    if (isGenerating || !hasUsableSource) return;
     const providerNeedsNetwork =
       providerId === 'ollama' ||
       providerId === 'copilot' ||
@@ -326,12 +399,8 @@ export const App: React.FC = () => {
         },
       });
 
-      const [updatedList, latestDoc] = await Promise.all([
-        loadSavedDiagrams(),
-        loadLastExtractedDocument(),
-      ]);
+      const updatedList = await loadSavedDiagrams();
       setRecentDiagrams(updatedList);
-      setSourceDoc(latestDoc);
       setActiveStage(null);
       await openEditorTab(saved.id);
     } catch (err: unknown) {
@@ -355,10 +424,11 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full max-w-[440px] mx-auto flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="sidepanel-shell min-h-screen w-full mx-auto flex flex-col">
       <Header
-        connectionOk={hasApiKey}
-        providerName={currentProviderCatalog.name}
+        connectionOk={connection.ok}
+        connectionLabel={connection.label}
+        providerName={providerId === 'copilot' ? 'Copilot CLI' : currentProviderCatalog.name}
         activeView={activeView}
         theme={settings.theme}
         onSelectView={setActiveView}
@@ -398,74 +468,76 @@ export const App: React.FC = () => {
       )}
 
       {activeView === 'main' && (
-        <main className="flex-1 space-y-3.5 p-3.5">
+        <main className="sidepanel-main flex-1 space-y-5 p-4">
           {/* Current Page Section */}
           <section
             aria-label="Current page details"
-            className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-2"
+            className="source-section space-y-3"
           >
-            <div className="flex items-start justify-between gap-2">
+            <h2 className="section-label">Source</h2>
+            <div className="segmented-control flex" aria-label="Source selection">
+              <button type="button" aria-pressed={!showManualPaste}
+                onClick={() => setShowManualPaste(false)}>This page</button>
+              <button type="button" aria-pressed={showManualPaste}
+                onClick={() => setShowManualPaste(true)}>Paste text</button>
+            </div>
+            <div className="source-summary flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  <span>{tabMeta.domain}</span>
-                  <span>•</span>
-                  <span
-                    className={
-                      tabMeta.supported
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-amber-600 dark:text-amber-400'
-                    }
-                  >
-                    {tabMeta.supported ? 'Extracted & Ready' : 'Unsupported URL'}
-                  </span>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {showManualPaste ? 'Manual source' : tabMeta.domain || 'Active tab'}
                 </div>
-                <h1 className="mt-0.5 truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
-                  {sourceDoc.title || tabMeta.title}
+                <h1 className="mt-1 text-sm font-semibold break-words">
+                  {hasUsableSource ? sourceDoc.title : showManualPaste ? 'Add your own text' : tabMeta.title}
                 </h1>
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400" aria-live="polite">
+                  {hasUsableSource
+                    ? `${sourceDoc.sections.length} sections · ${sourceDoc.wordCount} words · ~${estimateTokenCount(sourceDoc)} tokens`
+                    : showManualPaste ? 'Paste content below to get started' : isExtracting ? 'Reading page…' : 'No usable page content'}
+                </p>
               </div>
 
+              {!showManualPaste && (
               <button
                 type="button"
-                onClick={handleExtractPage}
-                className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                onClick={() => void handleExtractPage()}
+                disabled={isExtracting}
+                className="icon-button shrink-0"
+                aria-label="Refresh Page"
+                title="Refresh page"
               >
-                Refresh Page
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg>
               </button>
+              )}
             </div>
 
-            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span>
-                {sourceDoc.sections.length} sections • {sourceDoc.wordCount} words (~
-                {estimateTokenCount(sourceDoc)} tokens)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowManualPaste((v) => !v)}
-                  className="font-medium text-slate-600 hover:underline dark:text-slate-300"
-                >
-                  {showManualPaste ? 'Close Paste' : 'Paste Text'}
-                </button>
+            {hasUsableSource && (
+              <div className="text-[11px]">
                 <button
                   type="button"
                   onClick={() => setShowContentPreview((v) => !v)}
+                  aria-expanded={showContentPreview}
                   className="font-medium text-brand-600 hover:underline dark:text-brand-100"
                 >
                   {showContentPreview ? 'Hide Preview' : 'Content Preview'}
                 </button>
               </div>
-            </div>
+            )}
 
-            {!tabMeta.supported && tabMeta.unsupportedReason && (
+            {!showManualPaste && sourceError && (
               <div
-                role="status"
-                className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                role="alert"
+                className="source-warning"
               >
-                {tabMeta.unsupportedReason}
+                <div className="flex items-center gap-2 font-semibold">
+                  <span aria-hidden="true">⚠</span> Page unavailable
+                </div>
+                <p className="mt-1.5 leading-relaxed">{sourceError}</p>
+                <button type="button" className="mt-3 font-semibold underline underline-offset-4"
+                  onClick={() => setShowManualPaste(true)}>Paste text instead <span aria-hidden="true">→</span></button>
               </div>
             )}
 
-            {sourceDoc.hierarchicalSummarisationUsed && (
+            {hasUsableSource && sourceDoc.hierarchicalSummarisationUsed && (
               <div
                 role="status"
                 aria-label="Hierarchical summarisation notice"
@@ -506,7 +578,7 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {showContentPreview && (
+            {hasUsableSource && showContentPreview && (
               <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs space-y-1.5 dark:border-slate-800 dark:bg-slate-800/60">
                 {sourceDoc.sections.map((sec) => (
                   <div key={sec.id}>
@@ -526,7 +598,8 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            <div>
+            {hasUsableSource && <details className="text-xs">
+              <summary className="cursor-pointer text-slate-500 dark:text-slate-400">Selected-text focus</summary>
               <label
                 htmlFor="selected-text-input"
                 className="block text-[11px] font-medium text-slate-600 dark:text-slate-300"
@@ -541,19 +614,73 @@ export const App: React.FC = () => {
                 placeholder="Highlight text on the page or paste an excerpt…"
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
               />
-            </div>
+            </details>}
           </section>
 
           {/* Generation Options */}
           <section
             aria-label="Diagram generation options"
-            className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 space-y-3"
+            className="diagram-card space-y-4"
           >
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Generation Options
-            </h2>
-
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center justify-between">
+              <h2 className="section-label">Diagram</h2>
+              <button type="button" className="icon-button" aria-label="Expand full editor"
+                title="Open full editor" onClick={() => void openEditorTab(recentDiagrams[0]?.id)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg>
+              </button>
+            </div>
+            <div>
+              <span className="control-label">Type</span>
+              <div className="diagram-types mt-2 grid grid-cols-4 gap-2">
+                {DIAGRAM_STYLE_OPTIONS.map((style, index) => (
+                  <button key={style.id} type="button" aria-pressed={diagramType === style.id}
+                    onClick={() => setDiagramType(style.id)} title={style.description}
+                    className="diagram-type">
+                    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                      {index === 0 ? <><rect x="10" y="3" width="12" height="7" rx="2"/><path d="M16 10v6M7 16h18M7 16v6M25 16v6"/><rect x="2" y="22" width="10" height="7" rx="2"/><rect x="20" y="22" width="10" height="7" rx="2"/></>
+                        : index === 1 ? <><path d="M12 16H4m16 0h8M16 12V4m0 16v8M12 12L6 6m14 14 6 6M20 12l6-6"/><circle cx="16" cy="16" r="5"/><circle cx="4" cy="16" r="2"/><circle cx="28" cy="16" r="2"/><circle cx="16" cy="3" r="2"/></>
+                        : index === 2 ? <><path d="m9 9 14 2M8 11l6 13m10-10-8 10"/><circle cx="7" cy="7" r="4"/><circle cx="25" cy="11" r="4"/><circle cx="15" cy="27" r="4"/></>
+                        : <><rect x="4" y="3" width="24" height="26" rx="3"/><path d="M9 9h14M9 14h6m-6 5h6m5-5v10M9 24h6"/></>}
+                    </svg>
+                    <span>{style.id === 'concept_map' ? 'Concept' : style.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {diagramType !== 'infographic' && (
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-1">
+                  <span className="control-label">Detail</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400" aria-live="polite">
+                    {COMPLEXITY_PRESETS.find((preset) => preset.id === complexity)?.targetNodes} nodes
+                  </span>
+                </div>
+                <div className="segmented-control mt-2 flex" aria-label="Detail level">
+                  {COMPLEXITY_PRESETS.map((preset) => (
+                    <button type="button" key={preset.id} aria-pressed={complexity === preset.id}
+                      title={preset.behaviour} onClick={() => setComplexity(preset.id)}>
+                      {preset.id === 'balanced' ? 'Standard' : preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <label htmlFor="gen-instructions" className="control-label">
+                Instructions <span className="font-normal text-slate-500 dark:text-slate-400">(optional)</span>
+              </label>
+              <textarea id="gen-instructions" rows={2} value={additionalInstructions}
+                onChange={(e) => setAdditionalInstructions(e.target.value)}
+                placeholder="What should the diagram focus on?"
+                className="mt-2 w-full rounded-lg border px-3 py-2 text-xs"/>
+            </div>
+            <details className="model-controls">
+              <summary className="flex cursor-pointer items-center justify-between gap-2 text-xs">
+                <span className="min-w-0"><span className="control-label block">Model</span>
+                  <span className="mt-1 block break-words">{currentProviderCatalog.name} · {modelId}</span></span>
+                <span className="change-link">Change</span>
+              </summary>
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="col-span-2">
                 <label
                   htmlFor="gen-profile"
@@ -657,62 +784,14 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <span className="block text-[11px] font-medium text-slate-700 dark:text-slate-200">
-                Diagram Style
-              </span>
-              <div className="mt-1 grid grid-cols-2 gap-1.5">
-                {DIAGRAM_STYLE_OPTIONS.map((style) => (
-                  <button
-                    key={style.id}
-                    type="button"
-                    onClick={() => setDiagramType(style.id)}
-                    title={style.description}
-                    className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
-                      diagramType === style.id
-                        ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-600 dark:text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
-                    }`}
-                  >
-                    {style.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className={
-                diagramType === 'infographic'
-                  ? 'grid grid-cols-1 gap-2'
-                  : 'grid grid-cols-2 gap-2'
-              }
-            >
-              {diagramType !== 'infographic' && (
-                <div>
-                  <label
-                    htmlFor="gen-complexity"
-                    className="block text-[11px] font-medium text-slate-700 dark:text-slate-200"
-                  >
-                    Complexity Level
-                  </label>
-                  <select
-                    id="gen-complexity"
-                    value={complexity}
-                    onChange={(e) =>
-                      setComplexity(e.target.value as ComplexityLevel)
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
-                  >
-                    {COMPLEXITY_PRESETS.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label} ({preset.targetNodes} nodes)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
+            </details>
+            <details>
+              <summary className="flex cursor-pointer items-center justify-between gap-2 text-xs">
+                <span><span className="control-label block">Output</span>
+                  <span className="mt-1 block">{outputDestination === 'local_excalidraw' ? 'Excalidraw · Local editor' : 'MCP preview · Local output'}</span></span>
+                <span className="change-link">Change</span>
+              </summary>
+              <div className="mt-3">
                 <label
                   htmlFor="gen-destination"
                   className="block text-[11px] font-medium text-slate-700 dark:text-slate-200"
@@ -731,7 +810,7 @@ export const App: React.FC = () => {
                   <option value="remote_mcp">MCP preview (local output only)</option>
                 </select>
               </div>
-            </div>
+            </details>
             {outputDestination === 'remote_mcp' && (
               <div
                 role="status"
@@ -741,23 +820,6 @@ export const App: React.FC = () => {
                 local Excalidraw scene is always created and remains the output.
               </div>
             )}
-
-            <div>
-              <label
-                htmlFor="gen-instructions"
-                className="block text-[11px] font-medium text-slate-700 dark:text-slate-200"
-              >
-                Additional Instructions (optional)
-              </label>
-              <textarea
-                id="gen-instructions"
-                rows={2}
-                value={additionalInstructions}
-                onChange={(e) => setAdditionalInstructions(e.target.value)}
-                placeholder="e.g., Focus on when to replace a library with a native browser API"
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
-              />
-            </div>
 
             {/* Data-Sharing Confirmation Gate */}
             {awaitingApproval && (
@@ -839,20 +901,14 @@ export const App: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={isGenerating}
+                disabled={isGenerating || !hasUsableSource}
                 onClick={handlePrimaryVisualiseClick}
-                className="flex-1 rounded-xl bg-brand-600 py-2.5 text-xs font-semibold text-white shadow hover:bg-brand-700 disabled:opacity-50"
+                className="generate-button flex-1 rounded-xl py-3 text-sm font-semibold"
               >
-                {isGenerating ? 'Visualising…' : 'Visualise Page'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void openEditorTab(recentDiagrams[0]?.id)}
-                className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                Full Editor
+                {isGenerating ? 'Visualising…' : 'Generate diagram'}
               </button>
             </div>
+            {!hasUsableSource && <p className="text-center text-[11px] text-slate-500 dark:text-slate-400">Add page content or paste text to generate</p>}
           </section>
 
           {/* Staged Progress Indicator */}
