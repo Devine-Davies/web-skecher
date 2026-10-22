@@ -45,6 +45,8 @@ export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'canvas' | 'outline'>('canvas');
   const [fitRequest, setFitRequest] = useState(0);
   const [showSource, setShowSource] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const [splitRatio, setSplitRatio] = useState(50);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -90,6 +92,22 @@ export const App: React.FC = () => {
     }
     void init();
   }, []);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const dismissOnOutsideClick = (event: PointerEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) setExportOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExportOpen(false);
+    };
+    document.addEventListener('pointerdown', dismissOnOutsideClick);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsideClick);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [exportOpen]);
 
   const persistUpdatedSpec = async (
     nextSpec: SavedDiagram['spec'],
@@ -544,7 +562,8 @@ export const App: React.FC = () => {
           </section>
         </aside>}
       </div>
-      <nav aria-label="Editor controls" className="fixed bottom-2 left-1/2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto whitespace-nowrap rounded-full border border-slate-700 bg-slate-800 px-3 py-1.5 text-[10px] font-medium text-white shadow-xl">
+      <div ref={controlsRef} className="fixed bottom-3 left-1/2 z-20 w-max max-w-[calc(100vw-1rem)] -translate-x-1/2">
+      <nav aria-label="Editor controls" className="flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-full border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-white shadow-xl">
         <select
           aria-label="Switch saved diagram"
           value={currentDiagram.id}
@@ -552,20 +571,42 @@ export const App: React.FC = () => {
             const found = diagrams.find((d) => d.id === e.target.value);
             if (found) setCurrentDiagram(found);
           }}
-          className="max-w-36 shrink-0 rounded-full border border-slate-600 bg-slate-900 px-2 py-1 text-white"
+          className="max-w-40 shrink-0 rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-white"
         >
           {diagrams.map((d) => <option key={d.id} value={d.id}>{d.title} (v{d.version})</option>)}
         </select>
-        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Excalidraw Canvas</button>
-        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Accessible Textual Outline</button>
-        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Fit to Diagram</button>}
-        <span className="h-5 shrink-0 border-l border-slate-600" aria-hidden="true" />
-        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700 aria-pressed:bg-brand-600">Side by side</button>
-        <button type="button" onClick={handleExportExcalidraw} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export .excalidraw</button>
-        <button type="button" onClick={() => void handleExportSvg()} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export SVG</button>
-        <button type="button" onClick={() => void handleExportPng()} className="shrink-0 rounded-full px-2 py-1 hover:bg-slate-700">Export PNG</button>
-        <span role="status" className="shrink-0 px-1 text-slate-400">{saveStatus}</span>
+        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 16 4-4 3 3 3-5"/></svg>
+          Excalidraw Canvas
+        </button>
+        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
+          Accessible Textual Outline
+        </button>
+        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg>
+          Fit to Diagram
+        </button>}
+        <span className="h-6 shrink-0 border-l border-slate-600" aria-hidden="true" />
+        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+          Side by side
+        </button>
+        <span role="status" className="shrink-0 px-2 text-slate-300">{saveStatus}</span>
+        <button type="button" aria-expanded={exportOpen} aria-controls="editor-export-options" aria-haspopup="true" onClick={() => setExportOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3"/></svg>
+          Export
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m2 4 4 4 4-4"/></svg>
+        </button>
       </nav>
+      {exportOpen && (
+        <div id="editor-export-options" role="group" aria-label="Export options" className="absolute bottom-full right-0 mb-2 flex w-52 flex-col gap-1 rounded-xl border border-slate-700 bg-slate-800 p-2 text-sm text-white shadow-xl">
+          <button type="button" onClick={() => { setExportOpen(false); handleExportExcalidraw(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export .excalidraw</button>
+          <button type="button" onClick={() => { setExportOpen(false); void handleExportSvg(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export SVG</button>
+          <button type="button" onClick={() => { setExportOpen(false); void handleExportPng(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export PNG</button>
+        </div>
+      )}
+      </div>
     </div>
   );
 };
