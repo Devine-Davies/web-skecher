@@ -3,8 +3,8 @@ import {
   clearCrashRecoveryDraft,
   createInitialSampleDiagram,
   loadCrashRecoveryDraft,
-  loadLastExtractedDocument,
   loadSavedDiagrams,
+  loadSourceDocument,
   loadUserSettings,
   restoreDiagramCheckpoint,
   saveCrashRecoveryDraft,
@@ -37,7 +37,7 @@ export const App: React.FC = () => {
   const [currentDiagram, setCurrentDiagram] = useState<SavedDiagram>(
     createInitialSampleDiagram()
   );
-  const [sourceDoc, setSourceDoc] = useState<SourceDocument>(
+  const [sourceDoc, setSourceDoc] = useState<SourceDocument | null>(
     SAMPLE_SOURCE_DOCUMENT
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -58,10 +58,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     async function init() {
-      const [loadedDiagrams, loadedDoc, settings, crashDraft] =
+      const [loadedDiagrams, settings, crashDraft] =
         await Promise.all([
           loadSavedDiagrams(),
-          loadLastExtractedDocument(),
           loadUserSettings(),
           loadCrashRecoveryDraft(),
         ]);
@@ -74,7 +73,6 @@ export const App: React.FC = () => {
       document.documentElement.classList.toggle('dark', isDark);
 
       setDiagrams(loadedDiagrams);
-      setSourceDoc(loadedDoc);
 
       const params = new URLSearchParams(window.location.search);
       const requestedId = params.get('diagramId');
@@ -93,6 +91,14 @@ export const App: React.FC = () => {
     }
     void init();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void loadSourceDocument(currentDiagram.sourceDocumentId).then((doc) => {
+      if (active) setSourceDoc(doc);
+    });
+    return () => { active = false; };
+  }, [currentDiagram.sourceDocumentId]);
 
   useEffect(() => {
     if (!exportOpen) return;
@@ -355,6 +361,7 @@ export const App: React.FC = () => {
       return null;
     }
   })();
+  const matchingSourceDoc = sourceDoc?.id === currentDiagram.sourceDocumentId ? sourceDoc : null;
 
   const updateSplitRatio = (clientX: number) => {
     const bounds = splitContainerRef.current?.getBoundingClientRect();
@@ -438,14 +445,22 @@ export const App: React.FC = () => {
                 <span className="font-semibold">Original webpage</span>
                 {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline dark:text-brand-100">Open in new tab ↗</a>}
               </div>
-              {sourceUrl ? (
-                <>
-                  <iframe title="Original webpage" src={sourceUrl} sandbox="allow-forms allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0" />
-                  <p className="px-3 py-1 text-[11px] text-slate-500">If this site blocks embedded pages, open it in a new tab instead.</p>
-                </>
-              ) : (
-                <p className="p-4 text-sm text-slate-500">No supported source webpage is available for this diagram.</p>
-              )}
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm">
+                {matchingSourceDoc?.sections.length ? (
+                  <>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Extracted page content. Use the link above to view the live webpage.</p>
+                    <h2 className="text-lg font-semibold">{matchingSourceDoc.title}</h2>
+                    {matchingSourceDoc.sections.map((section) => (
+                      <section key={section.id} className="space-y-1 border-b border-slate-100 pb-3 dark:border-slate-800">
+                        {section.heading && <h3 className="font-semibold">{section.heading}</h3>}
+                        <p className="whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300">{section.text}</p>
+                      </section>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-slate-500 dark:text-slate-400">No saved page content is available for this diagram. {sourceUrl ? 'Open the original webpage in a new tab instead.' : ''}</p>
+                )}
+              </div>
             </section>
           </>
         )}
@@ -543,13 +558,13 @@ export const App: React.FC = () => {
             className="space-y-2.5 p-4"
           >
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Source References ({sourceDoc.sections.length})
+              Source References ({matchingSourceDoc?.sections.length ?? 0})
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Each node links to extracted sections from {sourceDoc.title}.
+              {matchingSourceDoc ? `Each node links to extracted sections from ${matchingSourceDoc.title}.` : 'No saved source references are available for this diagram.'}
             </p>
             <div className="space-y-2">
-              {sourceDoc.sections.map((section) => (
+              {matchingSourceDoc?.sections.map((section) => (
                 <div
                   key={section.id}
                   className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs dark:border-slate-800 dark:bg-slate-800/60"

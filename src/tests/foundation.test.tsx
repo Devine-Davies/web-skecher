@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { SAMPLE_DIAGRAM_SPEC } from '@/shared/constants';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { SAMPLE_DIAGRAM_SPEC, SAMPLE_SOURCE_DOCUMENT } from '@/shared/constants';
 import { validateDiagramSpec } from '@/core/diagrams/schema';
 import { applyDiagramPatch } from '@/core/diagrams/patches';
 import { renderDiagramToExcalidrawScene } from '@/core/diagrams/renderer';
@@ -8,6 +8,7 @@ import { evaluateTabUrlSupport } from '@/core/extraction';
 import { extractDocumentFromDom } from '@/content/extractor';
 import {
   loadUserSettings,
+  saveLastExtractedDocument,
   saveUserSettings,
 } from '@/core/storage';
 import { App as SidepanelApp } from '@/sidepanel/App';
@@ -170,13 +171,39 @@ describe('Volume 01 — Extension Foundation', () => {
     const toggle = screen.getByRole('button', { name: 'Side by side' });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('region', { name: 'Original webpage' })).toBeInTheDocument();
-    expect(screen.getByTitle('Original webpage')).toHaveAttribute('src', expect.stringMatching(/^https?:\/\//));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(within(source).getByText(SAMPLE_SOURCE_DOCUMENT.sections[0].text)).toBeInTheDocument();
+    expect(within(source).getByRole('link', { name: /Open in new tab/i })).toHaveAttribute('href', SAMPLE_SOURCE_DOCUMENT.url);
+    expect(within(source).queryByTitle('Original webpage')).not.toBeInTheDocument();
 
     const divider = screen.getByRole('separator', { name: 'Resize source and diagram' });
     fireEvent.keyDown(divider, { key: 'ArrowRight' });
     expect(divider).toHaveAttribute('aria-valuenow', '55');
     fireEvent.click(toggle);
     expect(screen.queryByRole('region', { name: 'Original webpage' })).not.toBeInTheDocument();
+  });
+
+  it('renders saved source as text rather than executing page markup', async () => {
+    const unsafeText = '<img src=x onerror=alert(1)>';
+    await saveLastExtractedDocument({
+      ...SAMPLE_SOURCE_DOCUMENT,
+      sections: [{ ...SAMPLE_SOURCE_DOCUMENT.sections[0], text: unsafeText }],
+    });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(within(source).getByText(unsafeText)).toBeInTheDocument();
+    expect(source.querySelector('img')).toBeNull();
+  });
+
+  it('does not show the latest extraction when it belongs to another diagram', async () => {
+    await saveLastExtractedDocument({ ...SAMPLE_SOURCE_DOCUMENT, id: 'unrelated', title: 'Unrelated' });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(await within(source).findByText(/No saved page content is available/)).toBeInTheDocument();
+    expect(within(source).queryByText('Unrelated')).not.toBeInTheDocument();
   });
 });
