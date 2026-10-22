@@ -109,6 +109,22 @@ export async function idbPutSourceDocument(doc: SourceDocument): Promise<void> {
   });
 }
 
+export async function idbGetSourceDocument(id: string): Promise<SourceDocument | null> {
+  const db = await openDatabase();
+  if (!db) return null;
+
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_DOCUMENTS, 'readonly');
+      const req = tx.objectStore(STORE_DOCUMENTS).get(id);
+      req.onsuccess = () => resolve((req.result as SourceDocument | undefined) ?? null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export async function idbPutCrashDraft(diagram: SavedDiagram): Promise<void> {
   const db = await openDatabase();
   if (!db) return;

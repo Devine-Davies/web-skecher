@@ -30,6 +30,7 @@ import {
   idbDeleteDiagram,
   idbGetAllDiagrams,
   idbGetCrashDraft,
+  idbGetSourceDocument,
   idbPutCrashDraft,
   idbPutDiagram,
   idbPutSourceDocument,
@@ -309,6 +310,13 @@ export async function loadLastExtractedDocument(): Promise<SourceDocument> {
     STORAGE_KEYS.LAST_EXTRACTION,
     SAMPLE_SOURCE_DOCUMENT
   );
+}
+
+export async function loadSourceDocument(id: string): Promise<SourceDocument | null> {
+  const stored = await idbGetSourceDocument(id);
+  if (stored) return stored;
+  const last = await loadLastExtractedDocument();
+  return last.id === id ? last : null;
 }
 
 export async function saveLastExtractedDocument(
