@@ -3,8 +3,8 @@ import {
   clearCrashRecoveryDraft,
   createInitialSampleDiagram,
   loadCrashRecoveryDraft,
-  loadLastExtractedDocument,
   loadSavedDiagrams,
+  loadSourceDocument,
   loadUserSettings,
   restoreDiagramCheckpoint,
   saveCrashRecoveryDraft,
@@ -37,7 +37,7 @@ export const App: React.FC = () => {
   const [currentDiagram, setCurrentDiagram] = useState<SavedDiagram>(
     createInitialSampleDiagram()
   );
-  const [sourceDoc, setSourceDoc] = useState<SourceDocument>(
+  const [sourceDoc, setSourceDoc] = useState<SourceDocument | null>(
     SAMPLE_SOURCE_DOCUMENT
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -45,8 +45,12 @@ export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'canvas' | 'outline'>('canvas');
   const [fitRequest, setFitRequest] = useState(0);
   const [showSource, setShowSource] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
   const [splitRatio, setSplitRatio] = useState(50);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const sourceSectionRefs = useRef(new Map<string, HTMLElement>());
   const draggingRef = useRef(false);
   const [recoveryCandidate, setRecoveryCandidate] =
     useState<SavedDiagram | null>(null);
@@ -55,10 +59,9 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     async function init() {
-      const [loadedDiagrams, loadedDoc, settings, crashDraft] =
+      const [loadedDiagrams, settings, crashDraft] =
         await Promise.all([
           loadSavedDiagrams(),
-          loadLastExtractedDocument(),
           loadUserSettings(),
           loadCrashRecoveryDraft(),
         ]);
@@ -71,7 +74,6 @@ export const App: React.FC = () => {
       document.documentElement.classList.toggle('dark', isDark);
 
       setDiagrams(loadedDiagrams);
-      setSourceDoc(loadedDoc);
 
       const params = new URLSearchParams(window.location.search);
       const requestedId = params.get('diagramId');
@@ -90,6 +92,33 @@ export const App: React.FC = () => {
     }
     void init();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void loadSourceDocument(currentDiagram.sourceDocumentId).then((doc) => {
+      if (active) setSourceDoc(doc);
+    });
+    return () => { active = false; };
+  }, [currentDiagram.sourceDocumentId]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const dismissOnOutsideClick = (event: PointerEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) setExportOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExportOpen(false);
+        exportButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', dismissOnOutsideClick);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsideClick);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [exportOpen]);
 
   const persistUpdatedSpec = async (
     nextSpec: SavedDiagram['spec'],
@@ -333,6 +362,21 @@ export const App: React.FC = () => {
       return null;
     }
   })();
+  const matchingSourceDoc = sourceDoc?.id === currentDiagram.sourceDocumentId ? sourceDoc : null;
+  const selectedNode = currentDiagram.spec.nodes.find((node) => node.id === selectedNodeId);
+  const supportingSectionIds = new Set(selectedNode?.sourceSectionIds ?? []);
+  const firstSupportingSectionId = matchingSourceDoc?.sections.find((section) =>
+    supportingSectionIds.has(section.id)
+  )?.id;
+
+  useEffect(() => {
+    if (showSource && firstSupportingSectionId) {
+      sourceSectionRefs.current.get(firstSupportingSectionId)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [showSource, firstSupportingSectionId, selectedNodeId]);
 
   const updateSplitRatio = (clientX: number) => {
     const bounds = splitContainerRef.current?.getBoundingClientRect();
@@ -416,14 +460,41 @@ export const App: React.FC = () => {
                 <span className="font-semibold">Original webpage</span>
                 {sourceUrl && <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline dark:text-brand-100">Open in new tab ↗</a>}
               </div>
-              {sourceUrl ? (
-                <>
-                  <iframe title="Original webpage" src={sourceUrl} sandbox="allow-forms allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="min-h-0 w-full flex-1 border-0" />
-                  <p className="px-3 py-1 text-[11px] text-slate-500">If this site blocks embedded pages, open it in a new tab instead.</p>
-                </>
-              ) : (
-                <p className="p-4 text-sm text-slate-500">No supported source webpage is available for this diagram.</p>
-              )}
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 text-sm">
+                {matchingSourceDoc?.sections.length ? (
+                  <>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Extracted page content. Use the link above to view the live webpage.</p>
+                    {selectedNode && (
+                      <p role="status" className="text-xs font-medium text-brand-700 dark:text-brand-100">
+                        {firstSupportingSectionId
+                          ? `Highlighted source sections for ${selectedNode.label}`
+                          : 'No saved source sections are linked to this node.'}
+                      </p>
+                    )}
+                    <h2 className="text-lg font-semibold">{matchingSourceDoc.title}</h2>
+                    {matchingSourceDoc.sections.map((section) => (
+                      <section
+                        key={section.id}
+                        ref={(element) => {
+                          if (element) sourceSectionRefs.current.set(section.id, element);
+                          else sourceSectionRefs.current.delete(section.id);
+                        }}
+                        data-testid={`source-section-${section.id}`}
+                        className={`space-y-1 rounded-lg border p-3 ${
+                          supportingSectionIds.has(section.id)
+                            ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500 dark:bg-brand-600/20'
+                            : 'border-slate-100 dark:border-slate-800'
+                        }`}
+                      >
+                        {section.heading && <h3 className="font-semibold">{section.heading}</h3>}
+                        <p className="whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300">{section.text}</p>
+                      </section>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-slate-500 dark:text-slate-400">No saved page content is available for this diagram. {sourceUrl ? 'Open the original webpage in a new tab instead.' : ''}</p>
+                )}
+              </div>
             </section>
           </>
         )}
@@ -521,13 +592,13 @@ export const App: React.FC = () => {
             className="space-y-2.5 p-4"
           >
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-              Source References ({sourceDoc.sections.length})
+              Source References ({matchingSourceDoc?.sections.length ?? 0})
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Each node links to extracted sections from {sourceDoc.title}.
+              {matchingSourceDoc ? `Each node links to extracted sections from ${matchingSourceDoc.title}.` : 'No saved source references are available for this diagram.'}
             </p>
             <div className="space-y-2">
-              {sourceDoc.sections.map((section) => (
+              {matchingSourceDoc?.sections.map((section) => (
                 <div
                   key={section.id}
                   className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs dark:border-slate-800 dark:bg-slate-800/60"
@@ -544,28 +615,54 @@ export const App: React.FC = () => {
           </section>
         </aside>}
       </div>
-      <nav aria-label="Editor controls" className="fixed bottom-2 left-1/2 z-20 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-2 overflow-x-auto whitespace-nowrap rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-xs shadow-xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+      <div ref={controlsRef} className="fixed bottom-3 left-1/2 z-20 w-max max-w-[calc(100vw-1rem)] -translate-x-1/2">
+      <nav aria-label="Editor controls" className="flex items-center gap-2 overflow-x-auto whitespace-nowrap rounded-full border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-white shadow-xl">
         <select
           aria-label="Switch saved diagram"
           value={currentDiagram.id}
           onChange={(e) => {
             const found = diagrams.find((d) => d.id === e.target.value);
-            if (found) setCurrentDiagram(found);
+            if (found) {
+              setCurrentDiagram(found);
+              setSelectedNodeId(null);
+            }
           }}
-          className="max-w-36 rounded-full border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-800"
+          className="max-w-40 shrink-0 rounded-full border border-slate-600 bg-slate-900 px-3 py-2 text-white"
         >
           {diagrams.map((d) => <option key={d.id} value={d.id}>{d.title} (v{d.version})</option>)}
         </select>
-        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Excalidraw Canvas</button>
-        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Accessible Textual Outline</button>
-        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Fit to Diagram</button>}
-        <span className="h-5 border-l border-slate-200 dark:border-slate-700" aria-hidden="true" />
-        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="rounded-full px-2 py-1 hover:bg-slate-100 aria-pressed:bg-brand-600 aria-pressed:text-white dark:hover:bg-slate-700">Side by side</button>
-        <button type="button" onClick={handleExportExcalidraw} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export .excalidraw</button>
-        <button type="button" onClick={() => void handleExportSvg()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export SVG</button>
-        <button type="button" onClick={() => void handleExportPng()} className="rounded-full px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700">Export PNG</button>
-        <span role="status" className="text-slate-500 dark:text-slate-400">{saveStatus}</span>
+        <button type="button" aria-pressed={viewMode === 'canvas'} onClick={() => setViewMode('canvas')} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 16 4-4 3 3 3-5"/></svg>
+          Excalidraw Canvas
+        </button>
+        <button type="button" aria-pressed={viewMode === 'outline'} onClick={() => setViewMode('outline')} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
+          Accessible Textual Outline
+        </button>
+        {viewMode === 'canvas' && <button type="button" onClick={() => setFitRequest((value) => value + 1)} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg>
+          Fit to Diagram
+        </button>}
+        <span className="h-6 shrink-0 border-l border-slate-600" aria-hidden="true" />
+        <button type="button" aria-pressed={showSource} onClick={() => setShowSource((value) => !value)} className="inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 hover:bg-slate-700 aria-pressed:bg-brand-600">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+          Side by side
+        </button>
+        <span role="status" className="shrink-0 px-2 text-slate-300">{saveStatus}</span>
+        <button ref={exportButtonRef} type="button" aria-expanded={exportOpen} aria-controls="editor-export-options" aria-haspopup="true" onClick={() => setExportOpen((open) => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3"/></svg>
+          Export
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m2 4 4 4 4-4"/></svg>
+        </button>
       </nav>
+      {exportOpen && (
+        <div id="editor-export-options" role="group" aria-label="Export options" className="absolute bottom-full right-0 mb-2 flex w-52 flex-col gap-1 rounded-xl border border-slate-700 bg-slate-800 p-2 text-sm text-white shadow-xl">
+          <button type="button" onClick={() => { setExportOpen(false); handleExportExcalidraw(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export .excalidraw</button>
+          <button type="button" onClick={() => { setExportOpen(false); void handleExportSvg(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export SVG</button>
+          <button type="button" onClick={() => { setExportOpen(false); void handleExportPng(); }} className="rounded-lg px-3 py-2 text-left hover:bg-brand-600">Export PNG</button>
+        </div>
+      )}
+      </div>
     </div>
   );
 };

@@ -1,13 +1,16 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { SAMPLE_DIAGRAM_SPEC } from '@/shared/constants';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { SAMPLE_DIAGRAM_SPEC, SAMPLE_SOURCE_DOCUMENT } from '@/shared/constants';
 import { validateDiagramSpec } from '@/core/diagrams/schema';
 import { applyDiagramPatch } from '@/core/diagrams/patches';
 import { renderDiagramToExcalidrawScene } from '@/core/diagrams/renderer';
 import { evaluateTabUrlSupport } from '@/core/extraction';
 import { extractDocumentFromDom } from '@/content/extractor';
 import {
+  createInitialSampleDiagram,
   loadUserSettings,
+  saveLastExtractedDocument,
+  saveDiagramRecord,
   saveUserSettings,
 } from '@/core/storage';
 import { App as SidepanelApp } from '@/sidepanel/App';
@@ -133,10 +136,9 @@ describe('Volume 01 — Extension Foundation', () => {
     await saveUserSettings({ ...initial, onboardingCompleted: true });
 
     render(<EditorApp />);
-    const exportBtn = await screen.findByRole('button', {
-      name: /Export \.excalidraw/i,
-    });
-    expect(exportBtn).toBeInTheDocument();
+    const exportBtn = await screen.findByRole('button', { name: 'Export' });
+    fireEvent.click(exportBtn);
+    expect(screen.getByRole('button', { name: 'Export .excalidraw' })).toBeInTheDocument();
 
     const outlineToggle = screen.getByRole('button', {
       name: /Accessible Textual Outline/i,
@@ -154,18 +156,113 @@ describe('Volume 01 — Extension Foundation', () => {
     expect(await screen.findByRole('textbox', { name: 'Diagram title' })).toBeInTheDocument();
     expect(screen.getByText(SAMPLE_DIAGRAM_SPEC.summary)).toBeInTheDocument();
     const toolbar = screen.getByRole('navigation', { name: 'Editor controls' });
-    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Export SVG' }));
+    const exportButton = screen.getByRole('button', { name: 'Export' });
+    expect(toolbar).toContainElement(exportButton);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(exportButton);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('group', { name: 'Export options' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Export SVG' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('group', { name: 'Export options' })).not.toBeInTheDocument();
+    expect(exportButton).toHaveFocus();
+    fireEvent.click(exportButton);
+    fireEvent.pointerDown(document.body);
+    expect(exportButton).toHaveAttribute('aria-expanded', 'false');
 
     const toggle = screen.getByRole('button', { name: 'Side by side' });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('region', { name: 'Original webpage' })).toBeInTheDocument();
-    expect(screen.getByTitle('Original webpage')).toHaveAttribute('src', expect.stringMatching(/^https?:\/\//));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(within(source).getByText(SAMPLE_SOURCE_DOCUMENT.sections[0].text)).toBeInTheDocument();
+    expect(within(source).getByRole('link', { name: /Open in new tab/i })).toHaveAttribute('href', SAMPLE_SOURCE_DOCUMENT.url);
+    expect(within(source).queryByTitle('Original webpage')).not.toBeInTheDocument();
 
     const divider = screen.getByRole('separator', { name: 'Resize source and diagram' });
     fireEvent.keyDown(divider, { key: 'ArrowRight' });
     expect(divider).toHaveAttribute('aria-valuenow', '55');
     fireEvent.click(toggle);
     expect(screen.queryByRole('region', { name: 'Original webpage' })).not.toBeInTheDocument();
+  });
+
+  it('renders saved source as text rather than executing page markup', async () => {
+    const unsafeText = '<img src=x onerror=alert(1)>';
+    await saveLastExtractedDocument({
+      ...SAMPLE_SOURCE_DOCUMENT,
+      sections: [{ ...SAMPLE_SOURCE_DOCUMENT.sections[0], text: unsafeText }],
+    });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(within(source).getByText(unsafeText)).toBeInTheDocument();
+    expect(source.querySelector('img')).toBeNull();
+  });
+
+  it('does not show the latest extraction when it belongs to another diagram', async () => {
+    await saveLastExtractedDocument({ ...SAMPLE_SOURCE_DOCUMENT, id: 'unrelated', title: 'Unrelated' });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    const source = screen.getByRole('region', { name: 'Original webpage' });
+    expect(await within(source).findByText(/No saved page content is available/)).toBeInTheDocument();
+    expect(within(source).queryByText('Unrelated')).not.toBeInTheDocument();
+  });
+
+  it('highlights and scrolls to supporting sections when a node is selected or the source view opens', async () => {
+    const diagram = createInitialSampleDiagram();
+    await saveDiagramRecord({
+      ...diagram,
+      spec: {
+        ...diagram.spec,
+        nodes: diagram.spec.nodes.map((node) =>
+          node.id === 'n1' ? { ...node, sourceSectionIds: ['s1', 's3'] } : node
+        ),
+      },
+    });
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<EditorApp />);
+      await screen.findByRole('textbox', { name: 'Diagram title' });
+      fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[0].label));
+      fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+      const first = screen.getByTestId('source-section-s1');
+      const third = screen.getByTestId('source-section-s3');
+      await waitFor(() => expect(first).toHaveClass('ring-2'));
+      expect(third).toHaveClass('ring-2');
+      expect(screen.getByTestId('source-section-s2')).not.toHaveClass('ring-2');
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' });
+      expect(screen.getByText(/Highlighted source sections for/)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[1].label));
+      expect(first).not.toHaveClass('ring-2');
+      expect(third).not.toHaveClass('ring-2');
+      expect(screen.getByTestId('source-section-s2')).toHaveClass('ring-2');
+      fireEvent.click(screen.getByRole('button', { name: 'Clear Selection' }));
+      expect(screen.getByTestId('source-section-s2')).not.toHaveClass('ring-2');
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it('explains when a selected node has no matching saved source section', async () => {
+    const diagram = createInitialSampleDiagram();
+    await saveDiagramRecord({
+      ...diagram,
+      spec: {
+        ...diagram.spec,
+        nodes: diagram.spec.nodes.map((node) =>
+          node.id === 'n1' ? { ...node, sourceSectionIds: ['missing'] } : node
+        ),
+      },
+    });
+    render(<EditorApp />);
+    await screen.findByRole('textbox', { name: 'Diagram title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    fireEvent.click(screen.getByText(SAMPLE_DIAGRAM_SPEC.nodes[0].label));
+    expect(await screen.findByText('No saved source sections are linked to this node.')).toBeInTheDocument();
+    expect(screen.getByTestId('source-section-s1')).not.toHaveClass('ring-2');
   });
 });

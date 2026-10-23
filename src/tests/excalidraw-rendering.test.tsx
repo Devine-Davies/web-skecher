@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { SAMPLE_DIAGRAM_SPEC } from '@/shared/constants';
 import { calculateDiagramLayout } from '@/core/diagrams/layout';
 import {
@@ -85,8 +85,9 @@ describe('Volume 04 — Excalidraw Rendering', () => {
 
     render(<EditorApp />);
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Export' }));
     expect(
-      await screen.findByRole('button', { name: /Export \.excalidraw/i })
+      screen.getByRole('button', { name: /Export \.excalidraw/i })
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Export SVG/i })

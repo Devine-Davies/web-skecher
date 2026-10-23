@@ -389,7 +389,11 @@ export const ExcalidrawEditor: React.FC<ExcalidrawEditorProps> = ({
                   )?.nodeId;
                   if (nodeId && nodeId !== selectedNodeId) {
                     onSelectNode(nodeId);
+                  } else if (!nodeId && selectedNodeId) {
+                    onSelectNode(null);
                   }
+                } else if (selectedNodeId) {
+                  onSelectNode(null);
                 }
               }}
             />
